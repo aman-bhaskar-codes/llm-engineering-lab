@@ -1,10 +1,9 @@
-import os
-from dotenv import load_dotenv
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
-load_dotenv()
-
-class Settings:
-    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-    MODEL_NAME = os.getenv("MODEL_NAME", "gemini-1.5-flash")
+class Settings(BaseSettings):
+    gemini_api_key: str = ""
+    model_name: str = "gemini-1.5-flash"
+    
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 settings = Settings()

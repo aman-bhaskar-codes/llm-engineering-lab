@@ -1,11 +1,10 @@
-from app.extraction.prompt_builder import build_extraction_prompt
-from app.llm.openai_client import generate_text
+from typing import Any, Dict
+from app.utils.schema_converter import create_dynamic_model
 
+class ExtractionEngine:
+    def __init__(self, model_client: Any):
+        self.model_client = model_client
 
-async def run_extraction(text: str, schema: dict):
-
-    prompt = build_extraction_prompt(text, schema)
-
-    response = await generate_text (prompt)
-
-    response
+    def extract(self, text: str, schema_def: Dict[str, Any]) -> Dict[str, Any]:
+        dynamic_model = create_dynamic_model(schema_def)
+        return self.model_client.generate_structured(text, dynamic_model)

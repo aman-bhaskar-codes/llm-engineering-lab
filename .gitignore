@@ -1,10 +1,31 @@
-# Python-generated files
-__pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
+# Environments
+.env
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
 
-# Virtual environments
-.venv
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Pytest / Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor and IDE
+.vscode/
+.idea/
+*.swp
+*.orig
+
+# MacOS
+.DS_Store
+
+# UV lock file
+# Typically you commit uv.lock, but some environments don't.
+# We will commit uv.lock to guarantee reproducibility.
