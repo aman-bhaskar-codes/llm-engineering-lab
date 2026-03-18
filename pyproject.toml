@@ -13,7 +13,9 @@ dependencies = [
     "openai",
     "instructor",
     "google-genai",
-    "jsonref"
+    "jsonref",
+    "google-generativeai>=0.8.6",
+    "python-dotenv>=1.2.2",
 ]
 
 [build-system]

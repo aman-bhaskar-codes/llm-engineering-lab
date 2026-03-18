@@ -1,6 +1,6 @@
 from app.utils.chunker import chunk_text
-from app.llm.openai_client import generate_text
-from app.extraction.prompt_builder import build_extraction_prompt
+from app.llm.gemini_client import generate_text
+from app.extraction.prompt_builder import PromptBuilder
 from app.extraction.aggregator import aggregate_results
 
 
@@ -14,7 +14,8 @@ async def run_extraction(text: str, schema: dict):
     results = []
 
     for chunk in chunks:
-        prompt = build_extraction_prompt(chunk, schema)
+
+        prompt = PromptBuilder.build_extraction_prompt(chunk, schema)
         output = generate_text(prompt)
 
         if output:
@@ -26,3 +27,5 @@ async def run_extraction(text: str, schema: dict):
     final_output = aggregate_results(results)
 
     return final_output
+
+
