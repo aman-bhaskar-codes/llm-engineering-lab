@@ -17,7 +17,7 @@ DEFAULT_SCHEMA = {
 @router.post("/extract")
 async def extract_data(request: ExtractionRequest):
 
-    schema = request.schema or DEFAULT_SCHEMA
+    schema = request.schema_def or DEFAULT_SCHEMA
 
     result = await run_extraction(
         request.text,

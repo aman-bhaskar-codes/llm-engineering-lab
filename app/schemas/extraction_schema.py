@@ -1,9 +1,9 @@
+from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field
-from typing import Dict, Any
 
 class ExtractionRequest(BaseModel):
     text: str
-    schema_def: Dict[str, Any] = Field(..., alias="schema")
+    schema_def: Optional[Dict[str, Any]] = Field(None, alias="schema")
 
 class ExtractionResponse(BaseModel):
     extracted_data: Dict[str, Any]
