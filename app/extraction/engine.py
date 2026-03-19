@@ -38,38 +38,68 @@ async def process_chunk(chunk: str, schema: dict, semaphore: asyncio.Semaphore):
 def build_refinement_prompt(data: dict, schema: dict):
 
     return f"""
-You are refining structured data extracted from text.
+You are an expert data structuring AI.
 
 Your job:
-- Ensure valid JSON
-- Fix incorrect types
-- Remove duplicates
-- Improve clarity
-- Fill obvious missing fields (only if strongly implied)
-- Keep it accurate (NO hallucination)
+- Return ONLY valid JSON (no text, no explanation)
+- Ensure all fields follow correct data types
+- Clean duplicates and inconsistencies
+- Improve clarity and completeness
 
-Schema:
+IMPORTANT:
+- You MAY add NEW useful fields if clearly inferred
+- Do NOT hallucinate unknown facts
+- Keep output structured and professional
+
+Base Schema:
 {schema}
 
 Extracted Data:
 {data}
 
-Return ONLY valid JSON.
+Return JSON only.
 """
 
+# -----------------------------
+# 🔹 Verification Prompt
+# -----------------------------
+def build_verification_prompt(text: str, output: str):
+
+    return f"""
+You are a strict verification system.
+
+Your job:
+- Check if extracted JSON is correct based on input text
+- Detect hallucinations
+- Detect incorrect values
+- Estimate confidence score (0 to 1)
+
+Return ONLY JSON:
+
+{{
+  "is_valid": true/false,
+  "confidence": float (0-1),
+  "issues": [list of problems]
+}}
+
+Text:
+{text}
+
+Extracted Output:
+{output}
+"""
 
 # -----------------------------
-# 🔹 Main Extraction Pipeline
+# 🔹 Main Pipeline
 # -----------------------------
 async def run_extraction(text: str, schema: dict):
 
-    if not text or not text.strip():
-        return {"error": "Empty input text"}
+    if not text.strip():
+        return {"error": "Empty input"}
 
     # 1️⃣ Chunking
     chunks = chunk_text(text)
 
-    # 2️⃣ Controlled Parallel Processing
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
     tasks = [
@@ -79,18 +109,42 @@ async def run_extraction(text: str, schema: dict):
 
     results = await asyncio.gather(*tasks)
 
-    # 3️⃣ Filter valid outputs
     valid_results = [r for r in results if r]
 
     if not valid_results:
-        return {"error": "All chunk extractions failed"}
+        return {"error": "Extraction failed"}
 
-    # 4️⃣ Aggregate results
-    merged_output = aggregate_results(valid_results)
+    # 2️⃣ Aggregation
+    merged = aggregate_results(valid_results)
 
-    # 5️⃣ Final Reasoning + Refinement Pass
-    refined_output = generate_text(
-        build_refinement_prompt(merged_output, schema)
+    # 3️⃣ Refinement (Intelligence Layer)
+    refined = generate_text(
+        build_refinement_prompt(merged, schema)
     )
 
-    return refined_output
+    try:
+        refined_json = json.loads(refined)
+    except:
+        return {"error": "Invalid JSON from refinement", "raw": refined}
+
+    # 4️⃣ Verification (Confidence Layer)
+    verification = generate_text(
+        build_verification_prompt(text, refined_json)
+    )
+
+    try:
+        verification_json = json.loads(verification)
+    except:
+        verification_json = {
+            "is_valid": False,
+            "confidence": 0,
+            "issues": ["verification failed"]
+        }
+
+    # 5️⃣ Final Output
+    return {
+        "data": refined_json,
+        "confidence": verification_json.get("confidence"),
+        "valid": verification_json.get("is_valid"),
+        "issues": verification_json.get("issues", [])
+    }
