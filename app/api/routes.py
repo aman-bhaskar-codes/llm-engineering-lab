@@ -7,12 +7,12 @@ router = APIRouter()
 
 DEFAULT_SCHEMA = {
     "name": "string",
+    "role": "string",
     "skills": "list[string]",
     "experience_years": "int",
-    "role": "string",
+    "education": "string",
     "summary": "string"
 }
-
 
 @router.post("/extract")
 async def extract_data(request: ExtractionRequest):
