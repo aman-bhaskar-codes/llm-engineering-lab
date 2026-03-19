@@ -3,6 +3,7 @@ from app.utils.chunker import chunk_text
 from app.llm.gemini_client import generate_text
 from app.extraction.prompt_builder import build_extraction_prompt
 from app.extraction.aggregator import aggregate_results
+from app.utils.json_parser import extract_json
 
 # Controls
 MAX_CONCURRENT_REQUESTS = 3
@@ -40,24 +41,22 @@ def build_refinement_prompt(data: dict, schema: dict):
     return f"""
 You are an expert data structuring AI.
 
-Your job:
-- Return ONLY valid JSON (no text, no explanation)
-- Ensure all fields follow correct data types
-- Clean duplicates and inconsistencies
-- Improve clarity and completeness
+STRICT RULES:
+- Return ONLY raw JSON
+- DO NOT use ```json or markdown
+- DO NOT add explanation
+- Ensure valid JSON format
 
-IMPORTANT:
-- You MAY add NEW useful fields if clearly inferred
-- Do NOT hallucinate unknown facts
-- Keep output structured and professional
+- Fix types
+- Remove duplicates
+- Improve clarity
+- Add useful inferred fields if obvious
 
-Base Schema:
+Schema:
 {schema}
 
-Extracted Data:
+Data:
 {data}
-
-Return JSON only.
 """
 
 # -----------------------------
@@ -122,23 +121,26 @@ async def run_extraction(text: str, schema: dict):
         build_refinement_prompt(merged, schema)
     )
 
-    try:
-        refined_json = json.loads(refined)
-    except:
-        return {"error": "Invalid JSON from refinement", "raw": refined}
+    refined_json = extract_json(refined)
+
+    if not refined_json:
+        return {
+            "error": "Invalid JSON from refinement",
+            "raw": refined
+        }
 
     # 4️⃣ Verification (Confidence Layer)
     verification = generate_text(
         build_verification_prompt(text, refined_json)
     )
 
-    try:
-        verification_json = json.loads(verification)
-    except:
+    verification_json = extract_json(verification)
+
+    if not verification_json:
         verification_json = {
             "is_valid": False,
             "confidence": 0,
-            "issues": ["verification failed"]
+            "issues": ["verification parsing failed"]
         }
 
     # 5️⃣ Final Output
