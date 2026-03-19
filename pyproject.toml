@@ -20,6 +20,7 @@ dependencies = [
     "pillow>=12.1.1",
     "pytesseract>=0.3.13",
     "pdf2image>=1.17.0",
+    "python-multipart>=0.0.22",
 ]
 
 [build-system]

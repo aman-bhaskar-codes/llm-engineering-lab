@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException
-from app.schemas.extraction_schema import ExtractionRequest, ExtractionResponse
+from fastapi import APIRouter, UploadFile, File
 from app.extraction.engine import run_extraction
+from app.ingestion.loader import load_document
+from app.schemas.extraction_schema import ExtractionRequest
 
 router = APIRouter()
 
@@ -14,20 +15,16 @@ DEFAULT_SCHEMA = {
 }
 
 
-@router.post("/extract")
-async def extract_data(request: ExtractionRequest):
+@router.post("/extract-file")
+async def extract_from_file(file: UploadFile = File(...)):
 
-    schema = request.schema_def if request.schema_def else DEFAULT_SCHEMA
+    file_path = f"temp_{file.filename}"
 
-    result = await run_extraction(
-        request.text,
-        schema
-    )
+    with open(file_path, "wb") as f:
+        f.write(await file.read())
 
-    # Return only the extracted data as the main result for a clean interface
-    return {
-        "status": "success",
-        "data": result.get("data"),
-        "valid": result.get("valid"),
-        "confidence": result.get("confidence")
-    }
+    text = load_document(file_path)
+
+    result = await run_extraction(text, DEFAULT_SCHEMA)
+
+    return {"result": result}
