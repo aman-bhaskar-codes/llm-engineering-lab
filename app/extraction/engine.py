@@ -47,10 +47,10 @@ STRICT RULES:
 - DO NOT add explanation
 - Ensure valid JSON format
 
-- Fix types
-- Remove duplicates
-- Improve clarity
-- Add useful inferred fields if obvious
+- Remove ANY fields that are not in the provided Schema.
+- Fix types to match the Schema (e.g., convert "four" to 4).
+- Remove duplicates and improve clarity.
+- STAY LOYAL TO THE SOURCE DATA. Do not invent details.
 
 Schema:
 {schema}
@@ -68,17 +68,17 @@ def build_verification_prompt(text: str, output: str):
 You are a strict verification system.
 
 Your job:
-- Check if extracted JSON is correct based on input text
-- Detect hallucinations
-- Detect incorrect values
-- Estimate confidence score (0 to 1)
+- Check if extracted JSON is strictly supported by the input text.
+- Flag any field as "hallucinated" if it contains information not in the text.
+- Compare the extracted data against the raw text for literal accuracy.
+- Estimate confidence score (0 to 1).
 
 Return ONLY JSON:
 
 {{
   "is_valid": true/false,
   "confidence": float (0-1),
-  "issues": [list of problems]
+  "issues": [list of specific problems like "hallucinated field X", "misinterpreted value Y"]
 }}
 
 Text:

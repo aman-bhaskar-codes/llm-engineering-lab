@@ -24,4 +24,10 @@ async def extract_data(request: ExtractionRequest):
         schema
     )
 
-    return {"result": result}
+    # Return only the extracted data as the main result for a clean interface
+    return {
+        "status": "success",
+        "data": result.get("data"),
+        "valid": result.get("valid"),
+        "confidence": result.get("confidence")
+    }
