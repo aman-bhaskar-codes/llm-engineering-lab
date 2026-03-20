@@ -1,5 +1,8 @@
 import json
 import re
+import logging
+
+logger = logging.getLogger(__name__)
 
 def normalize_text(obj):
     """Recursively normalize strings in a dictionary or list."""
@@ -53,5 +56,5 @@ def extract_json(text: str):
         return normalize_text(data)
 
     except Exception as e:
-        print("JSON PARSE ERROR:", e)
+        logger.warning("JSON parse error: %s", e)
         return None

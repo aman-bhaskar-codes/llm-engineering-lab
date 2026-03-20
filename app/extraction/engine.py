@@ -1,9 +1,12 @@
 import asyncio
+import logging
 from app.utils.chunker import chunk_text
 from app.llm.gemini_client import generate_text
 from app.extraction.prompt_builder import build_extraction_prompt
 from app.extraction.aggregator import aggregate_results
 from app.utils.json_parser import extract_json
+
+logger = logging.getLogger(__name__)
 
 # Controls
 MAX_CONCURRENT_REQUESTS = 3
@@ -13,22 +16,27 @@ MAX_RETRIES = 2
 # -----------------------------
 # 🔹 Chunk Processing Worker
 # -----------------------------
-async def process_chunk(chunk: str, schema: dict, semaphore: asyncio.Semaphore):
+async def process_chunk(
+    chunk: str,
+    schema: dict,
+    known_context: str | None,
+    semaphore: asyncio.Semaphore,
+):
 
     async with semaphore:
 
         for attempt in range(MAX_RETRIES):
 
             try:
-                prompt = build_extraction_prompt(chunk, schema)
+                prompt = build_extraction_prompt(chunk, schema, known_context=known_context)
 
-                output = generate_text(prompt)
+                output = await asyncio.to_thread(generate_text, prompt)
 
                 if output and output.strip():
                     return output
 
-            except Exception as e:
-                print(f"[Chunk Error] Attempt {attempt + 1}: {e}")
+            except Exception:
+                logger.exception("Chunk extraction error (attempt %s)", attempt + 1)
 
         return None
 
@@ -91,7 +99,7 @@ Extracted Output:
 # -----------------------------
 # 🔹 Main Pipeline
 # -----------------------------
-async def run_extraction(text: str, schema: dict):
+async def run_extraction(text: str, schema: dict, known_context: str | None = None):
 
     if not text.strip():
         return {"error": "Empty input"}
@@ -101,10 +109,7 @@ async def run_extraction(text: str, schema: dict):
 
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
-    tasks = [
-        process_chunk(chunk, schema, semaphore)
-        for chunk in chunks
-    ]
+    tasks = [process_chunk(chunk, schema, known_context, semaphore) for chunk in chunks]
 
     results = await asyncio.gather(*tasks)
 
@@ -117,9 +122,8 @@ async def run_extraction(text: str, schema: dict):
     merged = aggregate_results(valid_results)
 
     # 3️⃣ Refinement (Intelligence Layer)
-    refined = generate_text(
-        build_refinement_prompt(merged, schema)
-    )
+    refined_prompt = build_refinement_prompt(merged, schema)
+    refined = await asyncio.to_thread(generate_text, refined_prompt)
 
     refined_json = extract_json(refined)
 
@@ -130,9 +134,8 @@ async def run_extraction(text: str, schema: dict):
         }
 
     # 4️⃣ Verification (Confidence Layer)
-    verification = generate_text(
-        build_verification_prompt(text, refined_json)
-    )
+    verification_prompt = build_verification_prompt(text, refined_json)
+    verification = await asyncio.to_thread(generate_text, verification_prompt)
 
     verification_json = extract_json(verification)
 
