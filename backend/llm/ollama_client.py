@@ -3,12 +3,10 @@ Ollama Client — Local LLM inference via Ollama API.
 Optimized for low latency with connection pooling and tuned parameters.
 Same interface as GeminiClient for drop-in interchangeability.
 """
-import logging
+from loguru import logger
 import httpx
 from core.config import settings
 from tenacity import retry, stop_after_attempt, wait_exponential
-
-logger = logging.getLogger(__name__)
 
 # Persistent client for connection reuse (avoids TCP handshake per request)
 _http_client: httpx.AsyncClient | None = None
@@ -68,6 +66,7 @@ class OllamaClient:
         """Async generator yielding chunks from Ollama's /api/generate endpoint."""
         client = _get_http_client()
         import json
+        logger.info(f"Ollama streaming start: model={self.model_name} base_url={settings.ollama_base_url}")
         try:
             async with client.stream(
                 "POST",
@@ -84,6 +83,7 @@ class OllamaClient:
                     }
                 }
             ) as response:
+                logger.info(f"Ollama streaming response status: {response.status_code}")
                 response.raise_for_status()
                 async for chunk in response.aiter_lines():
                     if chunk:
@@ -92,6 +92,7 @@ class OllamaClient:
                             if "response" in data:
                                 yield data["response"]
                         except json.JSONDecodeError:
+                            logger.error(f"Ollama JSON decode error on chunk: {chunk}")
                             pass
         except Exception as e:
             logger.error(f"Ollama streaming failed ({self.model_name}): {e}")

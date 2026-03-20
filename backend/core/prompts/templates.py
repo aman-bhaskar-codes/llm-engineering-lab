@@ -42,3 +42,12 @@ Categorize it as:
 
 Output ONLY the category name.
 """
+
+DEFAULT_SCHEMA = {
+    "name": "string",
+    "role": "string",
+    "skills": "list[string]",
+    "experience_years": "int",
+    "education": "string",
+    "summary": "string"
+}

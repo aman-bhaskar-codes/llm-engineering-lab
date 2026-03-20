@@ -133,7 +133,7 @@ export const useAppStore = create<AppState>()(
       settings: defaultSettings,
       auth: {},
 
-      sessions: [createEmptySession()],
+      sessions: [], // Initialize empty to prevent hydration mismatch
       currentSessionId: undefined,
 
       memory: {

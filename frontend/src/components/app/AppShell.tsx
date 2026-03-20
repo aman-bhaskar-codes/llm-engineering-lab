@@ -49,6 +49,19 @@ export function AppShell() {
   }, [currentSessionId, sessions]);
 
   const [selectedMode, setSelectedMode] = React.useState<ExtractionMode>(settings.defaultMode);
+  const [isHydrated, setIsHydrated] = React.useState(false);
+
+  React.useEffect(() => {
+    setIsHydrated(true);
+  }, []);
+
+  // Ensure there's always at least one session after hydration
+  React.useEffect(() => {
+    if (isHydrated && sessions.length === 0) {
+      createSession();
+    }
+  }, [isHydrated, sessions.length, createSession]);
+
   React.useEffect(() => {
     setSelectedMode(settings.defaultMode);
   }, [settings.defaultMode]);
@@ -318,6 +331,8 @@ export function AppShell() {
       error: message
     });
   }
+
+  if (!isHydrated) return null; // Prevent hydration mismatch
 
   return (
     <div className="min-h-screen bg-background text-foreground">

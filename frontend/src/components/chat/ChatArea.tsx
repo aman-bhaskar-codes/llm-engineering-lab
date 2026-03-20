@@ -6,6 +6,8 @@ import type { ExtractionApiResponse, ExtractionMode, OutputFormat } from "@/type
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { OutputTabs } from "@/components/output/OutputTabs";
 import { ChatComposer } from "@/components/chat/ChatComposer";
+import { Button } from "@/components/ui/button";
+import { RefreshCw } from "lucide-react";
 
 function TypingDots() {
   return (
@@ -115,7 +117,25 @@ export function ChatArea({
               return (
                 <div key={m.id} className="flex justify-start">
                   <div className="max-w-[88%] rounded-2xl border border-red-200 bg-white px-4 py-3 text-sm text-red-800 dark:border-red-900/40 dark:bg-slate-950 dark:text-red-200">
-                    {m.error}
+                    <div className="space-y-2">
+                      <div className="text-red-500 dark:text-red-400 font-medium">
+                        {m.error}
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 gap-1.5 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/50"
+                        onClick={() => {
+                          const lastUserMsg = [...session.messages].reverse().find(msg => msg.role === "user");
+                          if (lastUserMsg?.input) {
+                            onStartExtraction(lastUserMsg.input);
+                          }
+                        }}
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" />
+                        Retry Extraction
+                      </Button>
+                    </div>
                   </div>
                 </div>
               );

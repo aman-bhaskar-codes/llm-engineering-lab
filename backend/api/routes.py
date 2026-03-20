@@ -42,18 +42,13 @@ from db.repositories.conversations import (
 from db.repositories.semantic_memory import upsert_semantic_memory, get_semantic_memory
 
 from schemas.extraction_schema import ExtractRequest
+from core.prompts.templates import DEFAULT_SCHEMA
+
+from sse_starlette.sse import EventSourceResponse
+import redis.asyncio as aioredis
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-DEFAULT_SCHEMA = {
-    "name": "string",
-    "role": "string",
-    "skills": "list[string]",
-    "experience_years": "int",
-    "education": "string",
-    "summary": "string"
-}
 
 MAX_STORED_INPUT_CHARS = 20_000
 
@@ -78,8 +73,6 @@ def _truncate(text: str) -> str:
 # ──────────────────────────────────────────────────────────────
 
 from fastapi import Request
-from sse_starlette.sse import EventSourceResponse
-import redis.asyncio as aioredis
 
 @router.post("/extract")
 async def extract_unified(
@@ -106,23 +99,38 @@ async def extract_unified(
 
 @router.get("/extract/{job_id}/stream")
 async def extract_stream(job_id: str):
-    """SSE endpoint for streaming extraction progress."""
+    """SSE endpoint for streaming extraction progress with buffering."""
     async def event_generator():
-        rc = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+        rc = aioredis.from_url(settings.redis_url, decode_responses=True)
         pubsub = rc.pubsub()
         await pubsub.subscribe(f"stream:{job_id}")
+        
+        chunks_key = f"chunks:{job_id}"
+        done_key = f"done:{job_id}"
+        result_key = f"result:{job_id}"
+        
+        cursor = 0
         try:
-            async for message in pubsub.listen():
-                if message["type"] == "message":
-                    data = message["data"]
-                    if data.startswith("\n[DONE_JSON]"):
-                        yield {"event": "done", "data": data.replace("\n[DONE_JSON]", "")}
-                        break
-                    elif data.startswith("\n[ERROR]"):
-                        yield {"event": "error", "data": data.replace("\n[ERROR]", "")}
-                        break
-                    
-                    yield {"event": "message", "data": data}
+            while True:
+                # 1. Drain existing buffer
+                chunks = await rc.lrange(chunks_key, cursor, -1)
+                for chunk in chunks:
+                    yield {"event": "message", "data": chunk}
+                    cursor += 1
+                
+                # 2. Check if already done
+                if await rc.exists(done_key):
+                    final_res = await rc.get(result_key)
+                    if final_res:
+                        yield {"event": "done", "data": final_res}
+                    break
+                
+                # 3. Wait for new chunk or timeout (which triggers loop to check lrange again)
+                # This handles cases where a message is published while we are draining
+                try:
+                    await asyncio.wait_for(pubsub.get_message(ignore_subscribe_messages=True), timeout=1.0)
+                except asyncio.TimeoutError:
+                    pass
         finally:
             await pubsub.unsubscribe(f"stream:{job_id}")
             await rc.close()
