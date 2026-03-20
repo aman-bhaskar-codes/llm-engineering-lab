@@ -67,6 +67,11 @@ export function AppShell() {
     else closeLogin();
   }, [authUser, closeLogin, openLogin]);
 
+  const addUserMessage = useAppStore((s) => s.addUserMessage);
+  const addAssistantMessage = useAppStore((s) => s.addAssistantMessage);
+  const upsertSemanticInsights = useAppStore((s) => s.upsertSemanticInsights);
+  const setSessionBackendConversationId = useAppStore((s) => s.setSessionBackendConversationId);
+
   React.useEffect(() => {
     if (!token) return;
 
@@ -147,10 +152,6 @@ export function AppShell() {
     void run();
   }, [token, hydrateFromBackendConversations, clearAllMemory, upsertSemanticInsights]);
 
-  const addUserMessage = useAppStore((s) => s.addUserMessage);
-  const addAssistantMessage = useAppStore((s) => s.addAssistantMessage);
-  const upsertSemanticInsights = useAppStore((s) => s.upsertSemanticInsights);
-  const setSessionBackendConversationId = useAppStore((s) => s.setSessionBackendConversationId);
 
   async function handleComplete(payload: ExtractionApiResponse) {
     const result = payload.result;
@@ -304,12 +305,14 @@ export function AppShell() {
             sessions={sessions}
             currentSessionId={activeSession.id}
             onSelectSession={(id) => {
-              setCurrentSessionId(id);
+              setCurrentSessionId(String(id));
                 void (async () => {
                   try {
                     const sess = sessions.find((s) => s.id === id);
                     const backendId = sess?.backendConversationId ?? id;
-                    const conv = await getConversation(backendId);
+                    if (!backendId) return;
+                    
+                    const conv = await getConversation(String(backendId));
                     const messages = (conv.messages ?? []).map((m) => {
                       if (m.role === "user") {
                         return {
