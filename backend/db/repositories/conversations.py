@@ -52,12 +52,16 @@ async def add_extraction(
     input_text: str,
     extracted_json: dict,
     confidence: float | None,
+    mode: str = "basic",
+    input_type: str = "text",
 ) -> Extraction:
     e = Extraction(
         conversation_id=conversation_id,
         input_text=input_text,
         extracted_json=extracted_json,
         confidence=confidence,
+        mode=mode,
+        input_type=input_type,
         created_at=datetime.utcnow(),
     )
     session.add(e)

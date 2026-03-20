@@ -42,114 +42,71 @@ async def process_chunk(
 
 
 # -----------------------------
-# 🔹 Refinement Prompt Builder
+# 🔹 Production-Grade Prompt (Step 3)
 # -----------------------------
-def build_refinement_prompt(data: dict, schema: dict):
-
+def build_stable_extraction_prompt(text: str, schema: dict, known_context: str | None = None):
     return f"""
-You are an expert data structuring AI.
+YOU ARE A HIGH-PRECISION EXTRACTION ENGINE.
 
-STRICT RULES:
-- Return ONLY raw JSON
-- DO NOT use ```json or markdown
-- DO NOT add explanation
-- Ensure valid JSON format
+TASK:
+Extract structured data from the text according to the SCHEMA.
 
-- Remove ANY fields that are not in the provided Schema.
-- Fix types to match the Schema (e.g., convert "four" to 4).
-- Remove duplicates and improve clarity.
-- STAY LOYAL TO THE SOURCE DATA. Do not invent details.
+STRICT CONSTRAINTS:
+1. Return ONLY valid JSON.
+2. DO NOT use ```json code blocks or any markdown tags.
+3. DO NOT include any conversational text, explanations, or chatter.
+4. Ensure all extracted fields exactly match the SCHEMA below.
+5. If a value is missing, use null (do not invent information).
 
-Schema:
+EXTERNAL CONTEXT (Use if relevant):
+{known_context if known_context else "None"}
+
+SCHEMA:
 {schema}
 
-Data:
-{data}
-"""
-
-# -----------------------------
-# 🔹 Verification Prompt
-# -----------------------------
-def build_verification_prompt(text: str, output: str):
-
-    return f"""
-You are a strict verification system.
-
-Your job:
-- Check if extracted JSON is strictly supported by the input text.
-- Flag any field as "hallucinated" if it contains information not in the text.
-- Compare the extracted data against the raw text for literal accuracy.
-- Estimate confidence score (0 to 1).
-
-Return ONLY JSON:
-
-{{
-  "is_valid": true/false,
-  "confidence": float (0-1),
-  "issues": [list of specific problems like "hallucinated field X", "misinterpreted value Y"]
-}}
-
-Text:
+TEXT TO EXTRACT FROM:
 {text}
-
-Extracted Output:
-{output}
 """
 
 # -----------------------------
-# 🔹 Main Pipeline
+# 🔹 Simplified Stable Pipeline (Step 2 & 6)
 # -----------------------------
 async def run_extraction(text: str, schema: dict, known_context: str | None = None):
+    from utils.json_parser import sanitize_json_response
 
-    if not text.strip():
-        return {"error": "Empty input"}
+    if not text or not text.strip():
+        return sanitize_json_response({"error": "Empty input provided"})
 
-    # 1️⃣ Chunking
-    chunks = chunk_text(text)
+    logger.info("Starting STABILIZED single-pass extraction.")
+    
+    # Trace Input
+    logger.debug(f"Input size: {len(text)}")
 
-    semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
+    try:
+        # Step 2: Single LLM Call
+        prompt = build_stable_extraction_prompt(text, schema, known_context)
+        raw_output = await asyncio.to_thread(generate_text, prompt)
+        
+        if not raw_output:
+            logger.error("LLM returned empty output.")
+            return sanitize_json_response({"error": "LLM returned empty result"})
 
-    tasks = [process_chunk(chunk, schema, known_context, semaphore) for chunk in chunks]
+        # Step 4: Robust JSON Extraction
+        extracted_data = extract_json(raw_output)
+        
+        if not extracted_data:
+            logger.warning("Failed to parse JSON from LLM output. Attempting sanitization.")
+            # Fallback (Step 4)
+            return sanitize_json_response({"raw_failed_output": raw_output[:500]})
 
-    results = await asyncio.gather(*tasks)
-
-    valid_results = [r for r in results if r]
-
-    if not valid_results:
-        return {"error": "Extraction failed"}
-
-    # 2️⃣ Aggregation
-    merged = aggregate_results(valid_results)
-
-    # 3️⃣ Refinement (Intelligence Layer)
-    refined_prompt = build_refinement_prompt(merged, schema)
-    refined = await asyncio.to_thread(generate_text, refined_prompt)
-
-    refined_json = extract_json(refined)
-
-    if not refined_json:
+        # Step 12/Final Output Format
         return {
-            "error": "Invalid JSON from refinement",
-            "raw": refined
+            "data": extracted_data,
+            "confidence": 0.85, # Default for simple mode
+            "valid": True,
+            "issues": []
         }
 
-    # 4️⃣ Verification (Confidence Layer)
-    verification_prompt = build_verification_prompt(text, refined_json)
-    verification = await asyncio.to_thread(generate_text, verification_prompt)
-
-    verification_json = extract_json(verification)
-
-    if not verification_json:
-        verification_json = {
-            "is_valid": False,
-            "confidence": 0,
-            "issues": ["verification parsing failed"]
-        }
-
-    # 5️⃣ Final Output
-    return {
-        "data": refined_json,
-        "confidence": verification_json.get("confidence"),
-        "valid": verification_json.get("is_valid"),
-        "issues": verification_json.get("issues", [])
-    }
+    except Exception as e:
+        logger.exception("Core extraction pipeline failed.")
+        return sanitize_json_response({"error": str(e)})

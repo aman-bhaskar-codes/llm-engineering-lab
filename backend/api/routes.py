@@ -93,29 +93,43 @@ async def extract_text(
     else:
         known_context = await fetch_known_user_context(db, user_id)
 
-    # 3. Extraction
     schema = payload.schema_def or DEFAULT_SCHEMA
-    if mode == "premium":
-        result_dict = await run_premium_extraction_pipeline(
-            text=stored_user_text,
-            schema=schema,
-            known_context=known_context
-        )
-        result = result_dict.get("result", {})
-        assistant_content = result_dict.get("assistant_content", "")
-    else:
-        # Basic mode
-        extracted_data = await run_extraction(stored_user_text, schema, known_context=known_context)
-        result = {
-            "data": extracted_data,
-            "confidence": extracted_data.get("confidence", 0.8),
-            "valid": True,
-            "issues": []
-        }
-        assistant_content = json.dumps(extracted_data)
+
+    # 3. Trace: Extraction Execution
+    logger.info(f"--- EXTRACTION START (Text) ---")
+    logger.info(f"Mode: {mode}, User: {user_id}, Schema: {schema[:100] if isinstance(schema, str) else 'Custom'}")
+    
+    try:
+        if mode == "premium":
+            logger.info("Running Premium Pipeline...")
+            result_dict = await run_premium_extraction_pipeline(
+                text=stored_user_text,
+                schema=schema,
+                known_context=known_context
+            )
+            result = result_dict.get("result", {})
+            assistant_content = result_dict.get("assistant_content", "")
+        else:
+            logger.info("Running Basic Pipeline...")
+            extracted_data = await run_extraction(stored_user_text, schema, known_context=known_context)
+            # Standardize output (Step 12/Final Output Format)
+            result = {
+                "data": extracted_data.get("data", extracted_data) if isinstance(extracted_data, dict) else extracted_data,
+                "confidence": extracted_data.get("confidence", 0.8) if isinstance(extracted_data, dict) else 0.8,
+                "valid": True,
+                "issues": []
+            }
+            assistant_content = json.dumps(extracted_data)
+        
+        logger.info(f"Extraction success. Valid: {result.get('valid')}")
+    except Exception as e:
+        logger.error(f"PIPELINE CRASH: {str(e)}")
+        from utils.json_parser import sanitize_json_response
+        result = sanitize_json_response({"error": str(e)})
+        assistant_content = json.dumps(result)
     
     # 4. Save Conversation
-    conversation_id = await create_conversation(
+    conversation = await create_conversation(
         db,
         user_id=user_id,
         title=_title_from_text(stored_user_text)
@@ -128,22 +142,22 @@ async def extract_text(
         user_msg = Message(role="user", content=stored_user_text)
         assistant_msg = Message(role="assistant", content=assistant_content)
 
-        await add_messages(db, conversation_id, [user_msg, assistant_msg])
+        await add_messages(db, conversation.id, [user_msg, assistant_msg])
         extraction_obj = await add_extraction(
             db,
-            conversation_id,
+            conversation.id,
             input_text=stored_user_text,
-            extracted_json=result.get("data", result), # Store just the data part in JSONB? The prompt says output_json (JSONB)
+            extracted_json=result.get("data", result), 
             confidence=result.get("confidence"),
+            mode=mode,
+            input_type="text"
         )
-        # Update mode/input_type explicitly since repository might not handle it yet or we fix repository
         if extraction_obj:
-            extraction_obj.mode = mode
-            extraction_obj.input_type = "text"
             extraction_id = extraction_obj.id
 
         if extraction_obj and isinstance(result, dict):
             # Pass the result dict to extractor
+            logger.info("Updating semantic memory...")
             semantic_items = await extract_semantic_items(result)
             await upsert_semantic_memory(
                 db,
@@ -151,6 +165,7 @@ async def extract_text(
                 items=semantic_items,
                 source_extraction_id=extraction_obj.id,
             )
+            logger.info(f"Memory updated with {len(semantic_items)} items.")
 
             repo = get_relationship_repo(db)
             try:
@@ -205,25 +220,39 @@ async def extract_from_file(
     else:
         known_context = await fetch_known_user_context(db, user_id)
 
-    # 3. Extraction
+    # 3. Trace: Extraction Execution
+    logger.info(f"--- EXTRACTION START (PDF) ---")
+    logger.info(f"Mode: {mode}, User: {user_id}, File: {file.filename}")
+    
     schema = DEFAULT_SCHEMA
-    if mode == "premium":
-        result_dict = await run_premium_extraction_pipeline(
-            text=text,
-            schema=schema,
-            known_context=known_context
-        )
-        result = result_dict.get("result", {})
-        assistant_content = result_dict.get("assistant_content", "")
-    else:
-        extracted_data = await run_extraction(text, schema, known_context=known_context)
-        result = {
-            "data": extracted_data,
-            "confidence": extracted_data.get("confidence", 0.8),
-            "valid": True,
-            "issues": []
-        }
-        assistant_content = json.dumps(extracted_data)
+    try:
+        if mode == "premium":
+            logger.info("Running Premium Pipeline (PDF)...")
+            result_dict = await run_premium_extraction_pipeline(
+                text=text,
+                schema=schema,
+                known_context=known_context
+            )
+            result = result_dict.get("result", {})
+            assistant_content = result_dict.get("assistant_content", "")
+        else:
+            logger.info("Running Basic Pipeline (PDF)...")
+            extracted_data = await run_extraction(text, schema, known_context=known_context)
+            # Standardize output (Step 12/Final Output Format)
+            result = {
+                "data": extracted_data.get("data", extracted_data) if isinstance(extracted_data, dict) else extracted_data,
+                "confidence": extracted_data.get("confidence", 0.8) if isinstance(extracted_data, dict) else 0.8,
+                "valid": True,
+                "issues": []
+            }
+            assistant_content = json.dumps(extracted_data)
+        
+        logger.info(f"PDF Extraction success. Valid: {result.get('valid')}")
+    except Exception as e:
+        logger.error(f"PDF PIPELINE CRASH: {str(e)}")
+        from utils.json_parser import sanitize_json_response
+        result = sanitize_json_response({"error": str(e)})
+        assistant_content = json.dumps(result)
 
     # 4. Save Conversation
     if conversation_id:
@@ -250,13 +279,14 @@ async def extract_from_file(
             input_text=stored_user_text,
             extracted_json=result.get("data", result),
             confidence=result.get("confidence"),
+            mode=mode,
+            input_type="pdf"
         )
         if extraction_obj:
-            extraction_obj.mode = mode
-            extraction_obj.input_type = "pdf" # Could detect ocr but pdf is fine
             extraction_id = extraction_obj.id
 
         if extraction_obj and isinstance(result, dict):
+            logger.info("Updating semantic memory (PDF)...")
             semantic_items = await extract_semantic_items(result)
             await upsert_semantic_memory(
                 db,
@@ -264,6 +294,7 @@ async def extract_from_file(
                 items=semantic_items,
                 source_extraction_id=extraction_obj.id,
             )
+            logger.info(f"Memory updated with {len(semantic_items)} items for PDF.")
 
             repo = get_relationship_repo(db)
             try:

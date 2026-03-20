@@ -28,7 +28,6 @@ def find_json_block(text: str) -> str | None:
     pattern = r"```(?:json)?\s*([\s\S]*?)\s*```"
     matches = re.findall(pattern, text)
     if matches:
-        # Return the largest match or first
         return max(matches, key=len).strip()
     
     # 2. Look for the first major object/array
@@ -55,24 +54,56 @@ def find_json_block(text: str) -> str | None:
         
     return text[start:end]
 
-def extract_json(text: str):
+def extract_json(text: str) -> Optional[Dict[str, Any]]:
     """Robustly extract and normalize JSON from LLM output."""
+    if not text:
+        return None
+        
     try:
         json_str = find_json_block(text)
         if not json_str:
-            return None
+            # Fallback regex for extremely messy output
+            match = re.search(r"(\{.*\}|\[.*\])", text, re.DOTALL)
+            if match:
+                json_str = match.group(1)
+            else:
+                return None
             
         data = json.loads(json_str)
         return normalize_text(data)
     except Exception as e:
         logger.warning(f"Failed to parse JSON: {e}")
-        # Try a more aggressive regex for simple structures if needed
         return None
 
 def sanitize_json_response(data: Any) -> Dict[str, Any]:
-    """Ensure API response is always a valid dictionary with expected structure."""
+    """
+    Ensure API response is ALWAYS a valid dictionary with the strict
+    SaaS schema required (Step 12/Final Output Format).
+    """
+    default_response = {
+        "data": {},
+        "confidence": 0.0,
+        "valid": False,
+        "issues": ["Sanitized from non-dictionary or error state"]
+    }
+
+    if not data:
+        return default_response
+
     if isinstance(data, dict):
-        return data
-    if data is None:
-        return {"error": "Extraction failed", "data": {}}
-    return {"data": data}
+        # Merge with default to ensure all fields exist
+        # If 'data' is already a key, use that. Otherwise, data is the data.
+        return {
+            "data": data.get("data", data if "data" not in data else {}),
+            "confidence": data.get("confidence", 0.0),
+            "valid": data.get("valid", True if "error" not in data else False),
+            "issues": data.get("issues", [])
+        }
+    
+    # If it's a list or other types, wrap it in 'data'
+    return {
+        "data": data,
+        "confidence": 0.5,
+        "valid": True,
+        "issues": []
+    }
