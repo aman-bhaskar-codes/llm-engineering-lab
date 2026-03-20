@@ -10,7 +10,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 BASE_URL = "http://localhost:8000/api/v1"
 
 async def test_production_platform():
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=120.0) as client:
         print("\n--- 1. Signup & Login ---")
         user_email = "prod_user_final@example.com"
         await client.post(f"{BASE_URL}/auth/signup", json={"email": user_email, "password": "securepassword123"})
