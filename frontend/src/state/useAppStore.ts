@@ -42,6 +42,11 @@ export type AppState = {
       // Saved as sessions list (history). Semantic is derived separately.
     };
     semanticInsights: MemoryInsight[];
+    relationalContext: {
+      name?: string;
+      role?: string;
+      skills?: string[];
+    };
   };
 
   ui: {
@@ -61,7 +66,8 @@ export type AppState = {
   logout: () => void;
 
   createSession: () => void;
-  setCurrentSessionId: (id: string) => void;
+  deleteSession: (id: string) => void;
+  setCurrentSessionId: (id: string | undefined) => void;
 
   addUserMessage: (sessionId: string, message: Omit<ChatMessage, "id" | "createdAt">) => void;
   addAssistantMessage: (
@@ -70,6 +76,7 @@ export type AppState = {
   ) => void;
 
   upsertSemanticInsights: (insights: MemoryInsight[]) => void;
+  setRelationalContext: (context: { name?: string; role?: string; skills?: string[] }) => void;
   clearAllMemory: () => void;
 
   setAuthToken: (payload: {
@@ -131,7 +138,8 @@ export const useAppStore = create<AppState>()(
 
       memory: {
         episodic: {},
-        semanticInsights: []
+        semanticInsights: [],
+        relationalContext: {}
       },
 
       ui: {
@@ -205,6 +213,20 @@ export const useAppStore = create<AppState>()(
         }));
       },
 
+      deleteSession: (id) =>
+        set((s) => {
+          const sessions = s.sessions.filter((sess) => sess.id !== id);
+          let currentId = s.currentSessionId;
+          if (currentId === id) {
+            currentId = sessions.length > 0 ? sessions[0].id : undefined;
+          }
+          if (sessions.length === 0) {
+            const newSess = createEmptySession();
+            return { sessions: [newSess], currentSessionId: newSess.id };
+          }
+          return { sessions, currentSessionId: currentId };
+        }),
+
       setCurrentSessionId: (id) => set({ currentSessionId: id }),
 
       addUserMessage: (sessionId, message) => {
@@ -265,9 +287,14 @@ export const useAppStore = create<AppState>()(
           };
         }),
 
+      setRelationalContext: (context) =>
+        set((s) => ({
+          memory: { ...s.memory, relationalContext: context }
+        })),
+
       clearAllMemory: () =>
         set((s) => ({
-          memory: { ...s.memory, semanticInsights: [] }
+          memory: { ...s.memory, semanticInsights: [], relationalContext: {} }
         }))
     }),
     {

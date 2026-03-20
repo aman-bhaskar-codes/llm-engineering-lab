@@ -37,7 +37,25 @@ export function ChatArea({
   onStatusChange: (s: { extracting: boolean; progress?: number }) => void;
 }) {
   const [extracting, setExtracting] = React.useState(false);
+  const [reasoningStage, setReasoningStage] = React.useState(0);
   const bottomRef = React.useRef<HTMLDivElement | null>(null);
+
+  const stages = [
+    "Initial Extraction...",
+    "Refining Relationships...",
+    "Final Verification & Scoring..."
+  ];
+
+  React.useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (extracting && mode === "reasoning") {
+      setReasoningStage(0);
+      interval = setInterval(() => {
+        setReasoningStage((prev) => (prev < 2 ? prev + 1 : prev));
+      }, 2500);
+    }
+    return () => clearInterval(interval);
+  }, [extracting, mode]);
 
   React.useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -119,7 +137,17 @@ export function ChatArea({
                   <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">System</span>
                   <TypingDots />
                 </div>
-                <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">Extracting and structuring your information...</div>
+                <div className="mt-2 text-xs font-medium text-slate-900 dark:text-slate-50">
+                  {mode === "reasoning" ? stages[reasoningStage] : "Extracting and structuring your information..."}
+                </div>
+                {mode === "reasoning" && (
+                  <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                    <div 
+                      className="h-full bg-blue-600 transition-all duration-1000" 
+                      style={{ width: `${((reasoningStage + 1) / stages.length) * 100}%` }}
+                    />
+                  </div>
+                )}
               </div>
             </div>
           ) : null}

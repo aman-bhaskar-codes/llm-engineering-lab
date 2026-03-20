@@ -114,30 +114,36 @@ export function ChatComposer({
           <Textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="Paste text (optional) or upload a PDF. The engine will return structured JSON."
+            placeholder={
+              mode === "simple" 
+                ? "Paste text for fast extraction... (Simple Mode = Text Only)" 
+                : "Paste text or upload a PDF for advanced processing..."
+            }
             className="min-h-[110px]"
           />
 
-          <div
-            {...getRootProps()}
-            className={cn(
-              "flex cursor-pointer items-center justify-between gap-3 rounded-xl border-2 border-dashed p-3 transition-colors",
-              isDragActive
-                ? "border-slate-900 bg-slate-50 dark:border-slate-100 dark:bg-slate-900/50"
-                : "border-slate-200 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-900/20"
-            )}
-          >
-            <div className="flex items-center gap-2">
-              <Upload className="h-4 w-4 text-slate-600 dark:text-slate-300" />
-              <div className="text-sm text-slate-700 dark:text-slate-200">
-                Drag & drop PDF here, or click to browse
+          {mode !== "simple" && (
+            <div
+              {...getRootProps()}
+              className={cn(
+                "flex cursor-pointer items-center justify-between gap-3 rounded-xl border-2 border-dashed p-3 transition-colors",
+                isDragActive
+                  ? "border-slate-900 bg-slate-50 dark:border-slate-100 dark:bg-slate-900/50"
+                  : "border-slate-200 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-900/20"
+              )}
+            >
+              <div className="flex items-center gap-2">
+                <Upload className="h-4 w-4 text-slate-600 dark:text-slate-300" />
+                <div className="text-sm text-slate-700 dark:text-slate-200">
+                  Drag & drop PDF here, or click to browse
+                </div>
               </div>
+              <div className="text-xs text-slate-500 dark:text-slate-400">{file ? "PDF selected" : "Advanced/Reasoning only"}</div>
+              <input {...getInputProps()} />
             </div>
-            <div className="text-xs text-slate-500 dark:text-slate-400">{file ? "PDF selected" : "Max: TBD"}</div>
-            <input {...getInputProps()} />
-          </div>
+          )}
 
-          {file ? (
+          {file && mode !== "simple" && (
             <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950">
               <div className="min-w-0">
                 <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-50">{file.name}</div>
@@ -147,7 +153,7 @@ export function ChatComposer({
                 Remove
               </Button>
             </div>
-          ) : null}
+          )}
 
           {typeof progress === "number" ? (
             <div className="space-y-2">

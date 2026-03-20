@@ -12,18 +12,26 @@ export function Sidebar({
   sessions,
   currentSessionId,
   onSelectSession,
+  onDeleteSession,
   onNewChat,
   onOpenSettings,
   memoryEnabled,
-  semanticInsights
+  semanticInsights,
+  relationalContext
 }: {
   sessions: ChatSession[];
   currentSessionId?: string;
   onSelectSession: (id: string) => void;
+  onDeleteSession: (id: string) => void;
   onNewChat: () => void;
   onOpenSettings: () => void;
   memoryEnabled: boolean;
   semanticInsights: MemoryInsight[];
+  relationalContext?: {
+    name?: string;
+    role?: string;
+    skills?: string[];
+  };
 }) {
   const [search, setSearch] = React.useState("");
   const filtered = sessions.filter((s) => {
@@ -79,28 +87,64 @@ export function Sidebar({
             {filtered.slice(0, 40).map((s) => {
               const active = s.id === currentSessionId || (!currentSessionId && s.id === sessions[0]?.id);
               return (
-                <button
-                  key={s.id}
-                  className={[
-                    "w-full rounded-xl border px-3 py-2 text-left text-sm transition-colors",
-                    active
-                      ? "border-slate-900 bg-slate-900 text-slate-50"
-                      : "border-slate-200 bg-white/60 hover:bg-white dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-100 dark:hover:bg-slate-950"
-                  ].join(" ")}
-                  onClick={() => onSelectSession(s.id)}
-                >
-                  <div className="truncate font-medium">{s.title}</div>
-                  <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                    {s.messages.length} turns
-                  </div>
-                </button>
+                <div key={s.id} className="group relative">
+                  <button
+                    className={[
+                      "w-full rounded-xl border px-3 py-2 text-left text-sm transition-colors",
+                      active
+                        ? "border-slate-900 bg-slate-900 text-slate-50"
+                        : "border-slate-200 bg-white/60 hover:bg-white dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-100 dark:hover:bg-slate-950"
+                    ].join(" ")}
+                    onClick={() => onSelectSession(s.id)}
+                  >
+                    <div className="pr-6 truncate font-medium">{s.title}</div>
+                    <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      {s.messages.length} turns
+                    </div>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeleteSession(s.id);
+                    }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 hover:text-red-500 transition-opacity"
+                    title="Delete Chat"
+                  >
+                    🗑
+                  </button>
+                </div>
               );
             })}
           </div>
 
           {memoryEnabled ? (
-            <div className="space-y-2">
+            <div className="space-y-4">
               <Separator />
+              
+              {/* Relational Profile (Neo4j Showcase) */}
+              {relationalContext && (relationalContext.name || relationalContext.role) && (
+                <div className="rounded-xl border border-blue-100 bg-blue-50/30 p-3 dark:border-blue-900/30 dark:bg-blue-900/10">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
+                    Relational Profile (Graph)
+                  </div>
+                  <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-50">
+                    {relationalContext.name || "Anonymous User"}
+                  </div>
+                  <div className="text-xs text-slate-600 dark:text-slate-400">
+                    {relationalContext.role || "Professional"}
+                  </div>
+                  {relationalContext.skills && relationalContext.skills.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {relationalContext.skills.slice(0, 5).map((s) => (
+                        <span key={s} className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                          {s}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 Semantic memory
               </div>

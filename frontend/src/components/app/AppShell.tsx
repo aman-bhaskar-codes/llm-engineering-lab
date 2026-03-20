@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useTheme } from "next-themes";
+import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Sidebar } from "@/components/sidebar/Sidebar";
@@ -12,7 +13,7 @@ import { LoginDialog } from "@/components/settings/LoginDialog";
 import { useAppStore } from "@/state/useAppStore";
 import type { MemoryInsight } from "@/state/useAppStore";
 import type { ExtractionApiResponse } from "@/types/extraction";
-import { getConversation, getMemory, listConversations } from "@/lib/api";
+import { getConversation, getMemory, listConversations, deleteConversation, getRelationalContext } from "@/lib/api";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
@@ -36,6 +37,9 @@ export function AppShell() {
   const hydrateFromBackendConversations = useAppStore((s) => s.hydrateFromBackendConversations);
   const hydrateSessionMessages = useAppStore((s) => s.hydrateSessionMessages);
   const clearAllMemory = useAppStore((s) => s.clearAllMemory);
+  const deleteSession = useAppStore((s) => s.deleteSession);
+  const setRelationalContext = useAppStore((s) => s.setRelationalContext);
+  const relationalContext = useAppStore((s) => s.memory.relationalContext);
 
   const { setTheme: setNextTheme } = useTheme();
 
@@ -144,6 +148,8 @@ export function AppShell() {
         });
 
         upsertSemanticInsights(semantic);
+        const rel = await getRelationalContext();
+        setRelationalContext(rel.context);
       } catch {
         // Fail open.
       }
@@ -151,6 +157,16 @@ export function AppShell() {
 
     void run();
   }, [token, hydrateFromBackendConversations, clearAllMemory, upsertSemanticInsights]);
+
+  async function handleDeleteChat(id: string) {
+    if (!confirm("Are you sure you want to delete this chat?")) return;
+    try {
+      await deleteConversation(id);
+      deleteSession(id);
+    } catch {
+      toast.error("Failed to delete chat.");
+    }
+  }
 
 
   async function handleComplete(payload: ExtractionApiResponse) {
@@ -251,6 +267,9 @@ export function AppShell() {
         });
 
         upsertSemanticInsights(semantic);
+
+        const rel = await getRelationalContext();
+        setRelationalContext(rel.context);
       } catch {
         // Fail open.
       }
@@ -281,6 +300,7 @@ export function AppShell() {
           <Sidebar
             sessions={sessions}
             currentSessionId={activeSession.id}
+            onDeleteSession={handleDeleteChat}
             onSelectSession={(id) => {
               setCurrentSessionId(String(id));
                 void (async () => {
@@ -334,6 +354,7 @@ export function AppShell() {
             onOpenSettings={openSettings}
             memoryEnabled={memoryEnabled}
             semanticInsights={semanticInsights}
+            relationalContext={relationalContext}
           />
         </div>
 
@@ -420,6 +441,7 @@ export function AppShell() {
             <Sidebar
               sessions={sessions}
               currentSessionId={activeSession.id}
+              onDeleteSession={handleDeleteChat}
               onSelectSession={(id) => {
                 const sid = String(id);
                 setCurrentSessionId(sid);
@@ -479,6 +501,7 @@ export function AppShell() {
               }}
               memoryEnabled={memoryEnabled}
               semanticInsights={semanticInsights}
+              relationalContext={relationalContext}
             />
           </div>
         </DialogContent>

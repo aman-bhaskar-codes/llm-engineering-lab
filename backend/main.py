@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+import uvicorn
 from fastapi.middleware.cors import CORSMiddleware
 import uuid
 
@@ -9,6 +10,7 @@ from core.logging import setup_logging
 from core.logging import set_correlation_id
 
 from core.redis import redis_manager
+from memory.graph_memory import graph_memory
 from core.error_handler import global_exception_handler
 from loguru import logger
 
@@ -18,9 +20,11 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Initializing system...")
     await redis_manager.connect()
+    await graph_memory.connect()
     yield
     # Shutdown
     await redis_manager.disconnect()
+    await graph_memory.close()
     logger.info("System shutdown complete.")
 
 app = FastAPI(
@@ -34,10 +38,13 @@ app.add_exception_handler(Exception, global_exception_handler)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["Authorization", "Content-Type", "X-Request-Id"],
+    allow_headers=["*"],
 )
 
 app.include_router(extraction_router, prefix="/api/v1")
@@ -59,3 +66,6 @@ async def correlation_id_middleware(request: Request, call_next):
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}
+
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

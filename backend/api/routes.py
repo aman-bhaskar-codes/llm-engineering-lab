@@ -16,17 +16,19 @@ from db.models.semantic_memory import SemanticMemory
 from db.models.semantic_relationship import SemanticRelationship
 from db.models.extraction import Extraction
 from db.models.message import Message
-from extraction.engine import run_extraction
-from ingestion.loader import load_document
+
+# New Modular Architecture
+from core.models.extraction import ExtractionApiResponse, ExtractionResult as SaaSResult
+from engine.simple_engine import SimpleEngine
+from engine.advanced_engine import AdvancedEngine
+from engine.reasoning_engine import ReasoningEngine
+from utils.chunker import Chunker
+from llm.gemini_client import GeminiClient
+
 from memory.semantic_extractor import extract_semantic_items
 from memory.retrieval import fetch_known_user_context, fetch_semantic_context
-from memory.relationship_repo import get_relationship_repo
-from extraction.engine_premium import run_premium_extraction_pipeline
-from schemas.extraction_schema import (
-    ExtractionApiResponse,
-    ExtractTextRequest,
-    ExtractRequest, # Assuming ExtractRequest is a new schema for the updated endpoint
-)
+from memory.graph_memory import graph_memory
+
 from db.repositories.conversations import (
     add_extraction,
     add_messages,
@@ -34,8 +36,9 @@ from db.repositories.conversations import (
     get_conversation,
     list_conversations,
 )
-from db.repositories.semantic_memory import upsert_semantic_memory
-from db.repositories.semantic_memory import get_semantic_memory
+from db.repositories.semantic_memory import upsert_semantic_memory, get_semantic_memory
+
+from schemas.extraction_schema import ExtractRequest
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -70,140 +73,115 @@ def _truncate(text: str) -> str:
 
 
 @router.post("/extract")
-async def extract_text(
+async def extract_text_auto(
     payload: ExtractRequest,
     db: AsyncSession = Depends(get_db),
     user_id: uuid.UUID = Depends(get_current_user_id_from_request),
     _: None = Depends(check_rate_limit)
 ):
-    stored_user_text = payload.text
-    mode = payload.mode or "basic"
+    """Router Endpoint: Automatically detects complexity and selects engine."""
+    client = GeminiClient()
+    router = ComplexityRouter(client)
     
-    # 1. Caching
-    cache_key = generate_cache_key(stored_user_text, mode)
-    cached_result = await cache_get(cache_key)
-    if cached_result:
-        logger.info(f"Cache hit for {cache_key}")
-        await increment_usage(db, user_id)
-        return {"result": cached_result, "conversation_id": None, "extraction_id": None, "cached": True}
-
-    # 2. Augmented Retrieval (Personalization)
-    if mode == "premium":
-        known_context = await fetch_semantic_context(db, user_id, stored_user_text)
-    else:
-        known_context = await fetch_known_user_context(db, user_id)
-
+    # 1. Complexity Detection
+    text = payload.text
     schema = payload.schema_def or DEFAULT_SCHEMA
-
-    # 3. Trace: Extraction Execution
-    logger.info(f"--- EXTRACTION START (Text) ---")
-    logger.info(f"Mode: {mode}, User: {user_id}, Schema: {schema[:100] if isinstance(schema, str) else 'Custom'}")
+    mode = await router.route(text, schema)
     
+    # 2. Re-route to specialized logic
+    return await _process_extraction(text, schema, mode, user_id, db)
+
+@router.post("/extract-simple")
+async def extract_simple(
+    payload: ExtractRequest,
+    db: AsyncSession = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_current_user_id_from_request)
+):
+    return await _process_extraction(payload.text, payload.schema_def or DEFAULT_SCHEMA, "simple", user_id, db)
+
+@router.post("/extract-advanced")
+async def extract_advanced(
+    payload: ExtractRequest,
+    db: AsyncSession = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_current_user_id_from_request)
+):
+    return await _process_extraction(payload.text, payload.schema_def or DEFAULT_SCHEMA, "advanced", user_id, db)
+
+@router.post("/extract-reasoning")
+async def extract_reasoning(
+    payload: ExtractRequest,
+    db: AsyncSession = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_current_user_id_from_request)
+):
+    return await _process_extraction(payload.text, payload.schema_def or DEFAULT_SCHEMA, "reasoning", user_id, db)
+
+async def _process_extraction(text: str, schema: dict, mode: str, user_id: uuid.UUID, db: AsyncSession):
+    client = GeminiClient()
+    
+    # Select Engine
+    if mode == "simple":
+        engine = SimpleEngine(client)
+    elif mode == "advanced":
+        engine = AdvancedEngine(client, Chunker())
+    else:
+        engine = ReasoningEngine(client)
+
+    logger.info(f"--- SaaS EXTRACTION START ---")
+    logger.info(f"Mode: {mode}, User: {user_id}")
+
     try:
-        if mode == "premium":
-            logger.info("Running Premium Pipeline...")
-            result_dict = await run_premium_extraction_pipeline(
-                text=stored_user_text,
-                schema=schema,
-                known_context=known_context
-            )
-            result = result_dict.get("result", {})
-            assistant_content = result_dict.get("assistant_content", "")
-        else:
-            logger.info("Running Basic Pipeline...")
-            extracted_data = await run_extraction(stored_user_text, schema, known_context=known_context)
-            # Standardize output (Step 12/Final Output Format)
-            result = {
-                "data": extracted_data.get("data", extracted_data) if isinstance(extracted_data, dict) else extracted_data,
-                "confidence": extracted_data.get("confidence", 0.8) if isinstance(extracted_data, dict) else 0.8,
-                "valid": True,
-                "issues": []
-            }
-            assistant_content = json.dumps(extracted_data)
+        # Run Extraction
+        result: SaaSResult = await engine.run(text, schema)
         
-        logger.info(f"Extraction success. Valid: {result.get('valid')}")
-    except Exception as e:
-        logger.error(f"PIPELINE CRASH: {str(e)}")
-        from utils.json_parser import sanitize_json_response
-        result = sanitize_json_response({"error": str(e)})
-        assistant_content = json.dumps(result)
-    
-    # 4. Save Conversation
-    conversation = await create_conversation(
-        db,
-        user_id=user_id,
-        title=_title_from_text(stored_user_text)
-    )
-    await db.commit()
+        # Save Conversation
+        conversation = await create_conversation(db, user_id=user_id, title=_title_from_text(text))
+        await db.commit()
 
-    # 5. Background / Parallel: Cache & Persist
-    extraction_id = None
-    try:
-        user_msg = Message(role="user", content=stored_user_text)
-        assistant_msg = Message(role="assistant", content=assistant_content)
-
-        await add_messages(db, conversation.id, [user_msg, assistant_msg])
+        # Persist Result
         extraction_obj = await add_extraction(
             db,
             conversation.id,
-            input_text=stored_user_text,
-            extracted_json=result.get("data", result), 
-            confidence=result.get("confidence"),
+            input_text=_truncate(text),
+            extracted_json=result.data,
+            confidence=result.confidence,
             mode=mode,
             input_type="text"
         )
-        if extraction_obj:
-            extraction_id = extraction_obj.id
-
-        if extraction_obj and isinstance(result, dict):
-            # Pass the result dict to extractor
-            logger.info("Updating semantic memory...")
-            semantic_items = await extract_semantic_items(result)
-            await upsert_semantic_memory(
-                db,
-                user_id=user_id,
-                items=semantic_items,
-                source_extraction_id=extraction_obj.id,
-            )
-            logger.info(f"Memory updated with {len(semantic_items)} items.")
-
-            repo = get_relationship_repo(db)
+        
+        # Essential Postgres Semantic Memory (Keep for history)
+        if result.valid:
             try:
-                await repo.upsert_relationships(
-                    user_id=user_id,
-                    semantic_items=[(k, v) for k, v, _ in semantic_items],
-                    source_extraction_id=extraction_obj.id,
-                )
-            except Exception:
-                pass
+                semantic_items = await extract_semantic_items(result.dict())
+                await upsert_semantic_memory(db, user_id=user_id, items=semantic_items, source_extraction_id=extraction_obj.id)
+                logger.info(f"Essential memory updated: {len(semantic_items)} items.")
+            except Exception as e:
+                logger.warning(f"Semantic memory update skipped: {e}")
 
         await db.commit()
+        # Save relational memory (Neo4j) - Fail-Open
+        asyncio.create_task(graph_memory.save_extraction_relations(user_id, result.model_dump()))
+
+        return ExtractionApiResponse(
+            result=result,
+            conversation_id=str(conversation.id),
+            extraction_id=str(extraction_entry.id),
+            cached=False
+        )
     except Exception as e:
-        await db.rollback()
-        logger.exception("DB persist failed for text extraction")
-        extraction_id = None
-
-    # 6. Usage & Caching
-    await increment_usage(db, user_id)
-    await cache_set(cache_key, result)
-
-    return {
-        "result": result,
-        "conversation_id": conversation_id,
-        "extraction_id": extraction_id,
-        "cached": False
-    }
+        logger.error(f"SaaS Pipeline Failure: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/extract-file")
 async def extract_from_file(
     file: UploadFile = File(...),
     conversation_id: uuid.UUID | None = Form(default=None),
-    mode: str = Form(default="basic"),
+    mode: str = Form(default="simple"), # Default to simple for speed
     user_id: uuid.UUID = Depends(get_current_user_id_from_request),
     db: AsyncSession = Depends(get_db),
     _: None = Depends(check_rate_limit)
 ):
+    """File Ingestion: Loads document then routes to specialized engine."""
     file_path = f"temp_{file.filename}"
     with open(file_path, "wb") as f:
         f.write(await file.read())
@@ -214,110 +192,21 @@ async def extract_from_file(
     if not text:
         raise HTTPException(status_code=400, detail="Could not extract text from PDF")
 
-    # 2. Context Retrieval
-    if mode == "premium":
-        known_context = await fetch_semantic_context(db, user_id, text)
-    else:
-        known_context = await fetch_known_user_context(db, user_id)
-
-    # 3. Trace: Extraction Execution
-    logger.info(f"--- EXTRACTION START (PDF) ---")
-    logger.info(f"Mode: {mode}, User: {user_id}, File: {file.filename}")
+    # 2. Schema Selection
+    schema = DEFAULT_SCHEMA # Could be passed via Form but keeping it simple for now
     
-    schema = DEFAULT_SCHEMA
+    # 3. Process via Unified Internal Path
     try:
-        if mode == "premium":
-            logger.info("Running Premium Pipeline (PDF)...")
-            result_dict = await run_premium_extraction_pipeline(
-                text=text,
-                schema=schema,
-                known_context=known_context
-            )
-            result = result_dict.get("result", {})
-            assistant_content = result_dict.get("assistant_content", "")
-        else:
-            logger.info("Running Basic Pipeline (PDF)...")
-            extracted_data = await run_extraction(text, schema, known_context=known_context)
-            # Standardize output (Step 12/Final Output Format)
-            result = {
-                "data": extracted_data.get("data", extracted_data) if isinstance(extracted_data, dict) else extracted_data,
-                "confidence": extracted_data.get("confidence", 0.8) if isinstance(extracted_data, dict) else 0.8,
-                "valid": True,
-                "issues": []
-            }
-            assistant_content = json.dumps(extracted_data)
+        response_data = await _process_extraction(text, schema, mode, user_id, db)
         
-        logger.info(f"PDF Extraction success. Valid: {result.get('valid')}")
+        # If conversation_id was provided, we could theoretically merge or relink, 
+        # but _process_extraction creates a new one by default. 
+        # For SaaS polish, we keep it unified.
+        
+        return response_data
     except Exception as e:
-        logger.error(f"PDF PIPELINE CRASH: {str(e)}")
-        from utils.json_parser import sanitize_json_response
-        result = sanitize_json_response({"error": str(e)})
-        assistant_content = json.dumps(result)
-
-    # 4. Save Conversation
-    if conversation_id:
-        conversation = await get_conversation(db, user_id, conversation_id)
-        if conversation is None:
-            raise HTTPException(status_code=404, detail="Conversation not found")
-        conversation_id_final = conversation.id
-    else:
-        conversation = await create_conversation(db, user_id, (file.filename or "PDF"))
-        await db.commit()
-        conversation_id_final = conversation.id
-
-    # 5. Background / Parallel: Persist
-    extraction_id = None
-    try:
-        stored_user_text = _truncate(text)
-        user_msg = Message(role="user", content=stored_user_text)
-        assistant_msg = Message(role="assistant", content=assistant_content)
-
-        await add_messages(db, conversation_id_final, [user_msg, assistant_msg])
-        extraction_obj = await add_extraction(
-            db,
-            conversation_id_final,
-            input_text=stored_user_text,
-            extracted_json=result.get("data", result),
-            confidence=result.get("confidence"),
-            mode=mode,
-            input_type="pdf"
-        )
-        if extraction_obj:
-            extraction_id = extraction_obj.id
-
-        if extraction_obj and isinstance(result, dict):
-            logger.info("Updating semantic memory (PDF)...")
-            semantic_items = await extract_semantic_items(result)
-            await upsert_semantic_memory(
-                db,
-                user_id=user_id,
-                items=semantic_items,
-                source_extraction_id=extraction_obj.id,
-            )
-            logger.info(f"Memory updated with {len(semantic_items)} items for PDF.")
-
-            repo = get_relationship_repo(db)
-            try:
-                await repo.upsert_relationships(
-                    user_id=user_id,
-                    semantic_items=[(k, v) for k, v, _ in semantic_items],
-                    source_extraction_id=extraction_obj.id,
-                )
-            except Exception:
-                pass
-
-        await db.commit()
-    except Exception:
-        await db.rollback()
-        logger.exception("DB persist failed for file extraction")
-        extraction_id = None
-
-    return {
-        "result": result,
-        "conversation_id": conversation_id_final,
-        "extraction_id": extraction_id,
-        "cached": False
-    }
+        logger.error(f"File Pipeline Failure: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/conversations")
@@ -386,6 +275,24 @@ async def get_user_conversation(
         "messages": messages,
         "extractions": extractions,
     }
+
+@router.delete("/conversation/{conversation_id}")
+async def delete_user_conversation(
+    conversation_id: uuid.UUID,
+    user_id: uuid.UUID = Depends(get_current_user_id_from_request),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a conversation and all its associated data."""
+    conv = await get_conversation(db, user_id, conversation_id)
+    if conv is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    
+    # Cascade delete is handled at the model level (assumed), 
+    # but we explicitly delete the conversation object.
+    await db.delete(conv)
+    await db.commit()
+    
+    return {"success": True, "message": "Conversation deleted"}
 
 
 @router.get("/memory")
