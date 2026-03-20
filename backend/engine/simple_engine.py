@@ -42,3 +42,15 @@ class SimpleEngine:
                 valid=False,
                 issues=[f"Engine error: {str(e)}"]
             )
+
+    async def run_stream(self, text: str, schema: dict):
+        """Streams the raw response back while it generates."""
+        logger.info("SimpleEngine: starting streaming extraction.")
+        prompt = f"{SIMPLE_EXTRACTION_PROMPT}\n\nSchema: {schema}\nText to extract from: {text}"
+        
+        try:
+            async for chunk in self.client.generate_content_stream(prompt):
+                yield chunk
+        except Exception as e:
+            logger.error(f"SimpleEngine streaming failed: {e}")
+            yield f"\n[Error matching schema: {str(e)}]"

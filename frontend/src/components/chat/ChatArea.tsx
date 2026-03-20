@@ -17,6 +17,25 @@ function TypingDots() {
   );
 }
 
+function StreamingOutput({ text }: { text: string }) {
+  if (!text) return null;
+  const thinkMatch = text.match(/<think>([\s\S]*?)(?:<\/think>|$)/);
+  if (thinkMatch) {
+    const thinkContent = thinkMatch[1].trim();
+    const afterThink = text.substring(thinkMatch.index! + thinkMatch[0].length).trim();
+    return (
+      <div className="mt-3 space-y-3">
+        <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-3 text-xs text-indigo-700 font-mono whitespace-pre-wrap shadow-inner dark:border-indigo-900/50 dark:bg-indigo-900/20 dark:text-indigo-300">
+          <div className="mb-2 font-bold uppercase tracking-wider text-[10px] text-indigo-500 dark:text-indigo-400">⚡ Engine Reasoning Log</div>
+          {thinkContent}
+        </div>
+        {afterThink && <pre className="whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-300">{afterThink}</pre>}
+      </div>
+    );
+  }
+  return <pre className="mt-3 whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-300">{text}</pre>;
+}
+
 export function ChatArea({
   session,
   mode,
@@ -37,6 +56,7 @@ export function ChatArea({
   onStatusChange: (s: { extracting: boolean; progress?: number }) => void;
 }) {
   const [extracting, setExtracting] = React.useState(false);
+  const [streamText, setStreamText] = React.useState("");
   const [reasoningStage, setReasoningStage] = React.useState(0);
   const bottomRef = React.useRef<HTMLDivElement | null>(null);
 
@@ -63,7 +83,7 @@ export function ChatArea({
 
   return (
     <div className="flex h-full flex-col">
-      <ScrollArea className="flex-1 px-4 py-4">
+      <div className="flex-1 overflow-y-auto px-4 py-4 scroll-smooth">
         <div className="mx-auto w-full max-w-3xl space-y-4">
           {session.messages.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 p-6 text-center text-slate-600 dark:border-slate-800 dark:bg-slate-900/10 dark:text-slate-300">
@@ -140,8 +160,9 @@ export function ChatArea({
                 <div className="mt-2 text-xs font-medium text-slate-900 dark:text-slate-50">
                   {mode === "reasoning" ? stages[reasoningStage] : "Extracting and structuring your information..."}
                 </div>
+                {streamText && <StreamingOutput text={streamText} />}
                 {mode === "reasoning" && (
-                  <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                  <div className="mt-3 h-1 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                     <div 
                       className="h-full bg-blue-600 transition-all duration-1000" 
                       style={{ width: `${((reasoningStage + 1) / stages.length) * 100}%` }}
@@ -152,16 +173,18 @@ export function ChatArea({
             </div>
           ) : null}
 
-          <div ref={bottomRef} />
+          <div ref={bottomRef} className="h-4" />
         </div>
-      </ScrollArea>
+      </div>
 
       <div className="p-4">
         <ChatComposer
           mode={mode}
           conversationId={session.backendConversationId}
+          onStreamToken={(token) => setStreamText(prev => prev + token)}
           onStart={(input) => {
             setExtracting(true);
+            setStreamText("");
             onStatusChange({ extracting: true });
             onStartExtraction(input);
           }}

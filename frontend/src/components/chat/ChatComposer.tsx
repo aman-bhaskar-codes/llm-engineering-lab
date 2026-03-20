@@ -19,7 +19,8 @@ export function ChatComposer({
   onStart,
   onComplete,
   onError,
-  onStatusChange
+  onStatusChange,
+  onStreamToken
 }: {
   mode: ExtractionMode;
   conversationId?: string;
@@ -27,6 +28,7 @@ export function ChatComposer({
   onComplete: (payload: ExtractionApiResponse) => void;
   onError: (message: string) => void;
   onStatusChange?: (s: { extracting: boolean; progress?: number }) => void;
+  onStreamToken?: (token: string) => void;
 }) {
   const [text, setText] = React.useState("");
   const [file, setFile] = React.useState<File | null>(null);
@@ -69,6 +71,10 @@ export function ChatComposer({
     try {
       onStart({ text: hasText ? trimmed : undefined, fileName: file?.name });
 
+      // Clear input fields immediately after submission starts
+      setText("");
+      setFile(null);
+
       if (file) {
         setProgress(0);
         const payload = await extractMutation.mutateAsync({
@@ -78,6 +84,7 @@ export function ChatComposer({
             setProgress(p);
             onStatusChange?.({ extracting: true, progress: p });
           },
+          onStreamToken,
           conversationId
         });
         onComplete(payload);
@@ -90,6 +97,7 @@ export function ChatComposer({
             setProgress(p);
             onStatusChange?.({ extracting: true, progress: p });
           },
+          onStreamToken,
           conversationId
         });
         onComplete(payload);
@@ -182,7 +190,7 @@ export function ChatComposer({
             {extractingRef.current ? "Extracting..." : "Extract"}
           </Button>
 
-          <Input disabled value={file ? "PDF input" : text.trim() ? "Text input (converted to PDF)" : "Ready"} />
+          <Input disabled value={file ? "PDF input" : text.trim() ? "Text input" : "Ready"} />
         </div>
       </div>
     </div>

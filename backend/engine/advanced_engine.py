@@ -58,4 +58,21 @@ class AdvancedEngine:
         except Exception as e:
             logger.error(f"Chunk processing failed: {e}")
             return {"data": {}, "confidence": 0, "valid": False, "issues": [str(e)]}
+
+    async def run_stream(self, text: str, schema: dict):
+        """Streams the extraction progress for multiple chunks."""
+        logger.info("AdvancedEngine: starting streaming extraction.")
+        chunks = self.chunker.chunk_text(text)
+        yield f"<think>\n[Advanced Mode: Processing {len(chunks)} chunks sequentially for streaming]\n"
+        
+        for idx, chunk in enumerate(chunks, 1):
+            yield f"\n--- Processing Chunk {idx}/{len(chunks)} ---\n"
+            prompt = f"{ADVANCED_EXTRACTION_PROMPT}\n\nSchema: {schema}\nText Chunk: {chunk}"
+            try:
+                async for text_chunk in self.client.generate_content_stream(prompt):
+                    yield text_chunk
+            except Exception as e:
+                yield f"\n[Chunk {idx} Error: {e}]\n"
+                
+        yield "\n</think>\n"
         

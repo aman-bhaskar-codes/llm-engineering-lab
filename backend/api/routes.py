@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 import uuid
 import logging
 
@@ -17,17 +18,19 @@ from db.models.semantic_relationship import SemanticRelationship
 from db.models.extraction import Extraction
 from db.models.message import Message
 
-# New Modular Architecture
-from core.models.extraction import ExtractionApiResponse, ExtractionResult as SaaSResult
+# Modular Architecture
+from core.models.extraction import ExtractionApiResponse, ExtractionResult
 from engine.simple_engine import SimpleEngine
 from engine.advanced_engine import AdvancedEngine
 from engine.reasoning_engine import ReasoningEngine
 from utils.chunker import Chunker
-from llm.gemini_client import GeminiClient
+from llm.model_router import get_llm_client
 
 from memory.semantic_extractor import extract_semantic_items
 from memory.retrieval import fetch_known_user_context, fetch_semantic_context
 from memory.graph_memory import graph_memory
+
+from ingestion.loader import load_document
 
 from db.repositories.conversations import (
     add_extraction,
@@ -52,7 +55,6 @@ DEFAULT_SCHEMA = {
     "summary": "string"
 }
 
-
 MAX_STORED_INPUT_CHARS = 20_000
 
 
@@ -71,143 +73,103 @@ def _truncate(text: str) -> str:
     return text[:MAX_STORED_INPUT_CHARS] + "...(truncated)"
 
 
+# ──────────────────────────────────────────────────────────────
+# UNIFIED EXTRACTION ENDPOINT (all modes)
+# ──────────────────────────────────────────────────────────────
+
+from fastapi import Request
+from sse_starlette.sse import EventSourceResponse
+import redis.asyncio as aioredis
 
 @router.post("/extract")
-async def extract_text_auto(
+async def extract_unified(
+    request: Request,
     payload: ExtractRequest,
-    db: AsyncSession = Depends(get_db),
     user_id: uuid.UUID = Depends(get_current_user_id_from_request),
     _: None = Depends(check_rate_limit)
 ):
-    """Router Endpoint: Automatically detects complexity and selects engine."""
-    client = GeminiClient()
-    router = ComplexityRouter(client)
-    
-    # 1. Complexity Detection
+    """Unified asynchronous extraction endpoint."""
     text = payload.text
-    schema = payload.schema_def or DEFAULT_SCHEMA
-    mode = await router.route(text, schema)
+    schema = payload.schema_def
+    mode = payload.mode or "simple"
+    model = payload.model or "qwen2.5:3b"
     
-    # 2. Re-route to specialized logic
-    return await _process_extraction(text, schema, mode, user_id, db)
-
-@router.post("/extract-simple")
-async def extract_simple(
-    payload: ExtractRequest,
-    db: AsyncSession = Depends(get_db),
-    user_id: uuid.UUID = Depends(get_current_user_id_from_request)
-):
-    return await _process_extraction(payload.text, payload.schema_def or DEFAULT_SCHEMA, "simple", user_id, db)
-
-@router.post("/extract-advanced")
-async def extract_advanced(
-    payload: ExtractRequest,
-    db: AsyncSession = Depends(get_db),
-    user_id: uuid.UUID = Depends(get_current_user_id_from_request)
-):
-    return await _process_extraction(payload.text, payload.schema_def or DEFAULT_SCHEMA, "advanced", user_id, db)
-
-@router.post("/extract-reasoning")
-async def extract_reasoning(
-    payload: ExtractRequest,
-    db: AsyncSession = Depends(get_db),
-    user_id: uuid.UUID = Depends(get_current_user_id_from_request)
-):
-    return await _process_extraction(payload.text, payload.schema_def or DEFAULT_SCHEMA, "reasoning", user_id, db)
-
-async def _process_extraction(text: str, schema: dict, mode: str, user_id: uuid.UUID, db: AsyncSession):
-    client = GeminiClient()
+    job_id = f"job:{uuid.uuid4().hex}"
     
-    # Select Engine
-    if mode == "simple":
-        engine = SimpleEngine(client)
-    elif mode == "advanced":
-        engine = AdvancedEngine(client, Chunker())
-    else:
-        engine = ReasoningEngine(client)
-
-    logger.info(f"--- SaaS EXTRACTION START ---")
-    logger.info(f"Mode: {mode}, User: {user_id}")
-
-    try:
-        # Run Extraction
-        result: SaaSResult = await engine.run(text, schema)
+    redis_pool = request.app.state.redis_pool
+    if not redis_pool:
+        raise HTTPException(status_code=500, detail="Worker pool not initialized")
         
-        # Save Conversation
-        conversation = await create_conversation(db, user_id=user_id, title=_title_from_text(text))
-        await db.commit()
+    await redis_pool.enqueue_job("process_extraction_job", job_id, text, mode, str(user_id), model, schema)
+    
+    return {"job_id": job_id, "status": "queued"}
 
-        # Persist Result
-        extraction_obj = await add_extraction(
-            db,
-            conversation.id,
-            input_text=_truncate(text),
-            extracted_json=result.data,
-            confidence=result.confidence,
-            mode=mode,
-            input_type="text"
-        )
-        
-        # Essential Postgres Semantic Memory (Keep for history)
-        if result.valid:
-            try:
-                semantic_items = await extract_semantic_items(result.dict())
-                await upsert_semantic_memory(db, user_id=user_id, items=semantic_items, source_extraction_id=extraction_obj.id)
-                logger.info(f"Essential memory updated: {len(semantic_items)} items.")
-            except Exception as e:
-                logger.warning(f"Semantic memory update skipped: {e}")
+@router.get("/extract/{job_id}/stream")
+async def extract_stream(job_id: str):
+    """SSE endpoint for streaming extraction progress."""
+    async def event_generator():
+        rc = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+        pubsub = rc.pubsub()
+        await pubsub.subscribe(f"stream:{job_id}")
+        try:
+            async for message in pubsub.listen():
+                if message["type"] == "message":
+                    data = message["data"]
+                    if data.startswith("\n[DONE_JSON]"):
+                        yield {"event": "done", "data": data.replace("\n[DONE_JSON]", "")}
+                        break
+                    elif data.startswith("\n[ERROR]"):
+                        yield {"event": "error", "data": data.replace("\n[ERROR]", "")}
+                        break
+                    
+                    yield {"event": "message", "data": data}
+        finally:
+            await pubsub.unsubscribe(f"stream:{job_id}")
+            await rc.close()
+            
+    return EventSourceResponse(event_generator())
 
-        await db.commit()
-        # Save relational memory (Neo4j) - Fail-Open
-        asyncio.create_task(graph_memory.save_extraction_relations(user_id, result.model_dump()))
 
-        return ExtractionApiResponse(
-            result=result,
-            conversation_id=str(conversation.id),
-            extraction_id=str(extraction_entry.id),
-            cached=False
-        )
-    except Exception as e:
-        logger.error(f"SaaS Pipeline Failure: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
+# ──────────────────────────────────────────────────────────────
+# FILE EXTRACTION ENDPOINT
+# ──────────────────────────────────────────────────────────────
 
 @router.post("/extract-file")
 async def extract_from_file(
     file: UploadFile = File(...),
     conversation_id: uuid.UUID | None = Form(default=None),
-    mode: str = Form(default="simple"), # Default to simple for speed
+    mode: str = Form(default="advanced"),
     user_id: uuid.UUID = Depends(get_current_user_id_from_request),
     db: AsyncSession = Depends(get_db),
     _: None = Depends(check_rate_limit)
 ):
-    """File Ingestion: Loads document then routes to specialized engine."""
-    file_path = f"temp_{file.filename}"
-    with open(file_path, "wb") as f:
-        f.write(await file.read())
-
-    # 1. OCR / Load
-    orig_text = await asyncio.to_thread(load_document, file_path)
-    text = (orig_text or "").strip()
-    if not text:
-        raise HTTPException(status_code=400, detail="Could not extract text from PDF")
-
-    # 2. Schema Selection
-    schema = DEFAULT_SCHEMA # Could be passed via Form but keeping it simple for now
-    
-    # 3. Process via Unified Internal Path
+    """File Ingestion: Loads document then routes to engine."""
+    import os
+    file_path = f"/tmp/extract_{uuid.uuid4().hex}_{file.filename}"
     try:
-        response_data = await _process_extraction(text, schema, mode, user_id, db)
-        
-        # If conversation_id was provided, we could theoretically merge or relink, 
-        # but _process_extraction creates a new one by default. 
-        # For SaaS polish, we keep it unified.
-        
-        return response_data
-    except Exception as e:
-        logger.error(f"File Pipeline Failure: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        with open(file_path, "wb") as f:
+            f.write(await file.read())
 
+        orig_text = await asyncio.to_thread(load_document, file_path)
+        text = (orig_text or "").strip()
+        if not text:
+            raise HTTPException(status_code=400, detail="Could not extract text from PDF")
+
+        job_id = f"job:{uuid.uuid4().hex}"
+        redis_pool = request.app.state.redis_pool
+        if not redis_pool:
+            raise HTTPException(status_code=500, detail="Worker pool not initialized")
+            
+        await redis_pool.enqueue_job("process_extraction_job", job_id, text, mode, str(user_id), "qwen2.5:3b", None)
+        return {"job_id": job_id, "status": "queued"}
+    finally:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
+
+# ──────────────────────────────────────────────────────────────
+# CONVERSATION ENDPOINTS
+# ──────────────────────────────────────────────────────────────
 
 @router.get("/conversations")
 async def list_user_conversations(
@@ -263,6 +225,8 @@ async def get_user_conversation(
             "input_text": e.input_text,
             "extracted_json": e.extracted_json,
             "confidence": e.confidence,
+            "mode": e.mode,
+            "input_type": e.input_type,
             "created_at": e.created_at,
         }
         for e in ex_res.scalars().all()
@@ -276,6 +240,7 @@ async def get_user_conversation(
         "extractions": extractions,
     }
 
+
 @router.delete("/conversation/{conversation_id}")
 async def delete_user_conversation(
     conversation_id: uuid.UUID,
@@ -286,14 +251,15 @@ async def delete_user_conversation(
     conv = await get_conversation(db, user_id, conversation_id)
     if conv is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    
-    # Cascade delete is handled at the model level (assumed), 
-    # but we explicitly delete the conversation object.
+
     await db.delete(conv)
     await db.commit()
-    
     return {"success": True, "message": "Conversation deleted"}
 
+
+# ──────────────────────────────────────────────────────────────
+# MEMORY ENDPOINTS
+# ──────────────────────────────────────────────────────────────
 
 @router.get("/memory")
 async def get_user_memory(
@@ -334,3 +300,12 @@ async def get_user_memory(
     ]
 
     return {"semantic": semantic, "relationships": relationships}
+
+
+@router.get("/user/relational-context")
+async def get_user_relational_context_route(
+    user_id: str = Depends(get_current_user_id_from_request)
+):
+    """Retrieves relational context (Neo4j) for the current user."""
+    context = await graph_memory.get_user_context(str(user_id))
+    return {"context": context}

@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     neo4j_user: str = "neo4j"
     neo4j_password: str = "password"
 
+    # Ollama (local LLM fallback)
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model_name: str = "qwen2.5:3b"
+
     class Config:
         env_file = ".env"
 

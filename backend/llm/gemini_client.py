@@ -30,3 +30,31 @@ class GeminiClient:
         except Exception as e:
             logger.error(f"Gemini generation failed: {e}")
             raise
+
+    async def generate_content_stream(self, prompt: str):
+        """Async generator yielding chunks from Gemini."""
+        try:
+            # Use the alpha/aio async client for streaming
+            if hasattr(self.client, 'aio'):
+                response = await self.client.aio.models.generate_content_stream(
+                    model=self.model_name,
+                    contents=prompt
+                )
+                async for chunk in response:
+                    if chunk.text:
+                        yield chunk.text
+            else:
+                import asyncio
+                # Fallback to threaded synchronous generator if aio not configured
+                def sync_stream():
+                    return self.client.models.generate_content_stream(
+                        model=self.model_name,
+                        contents=prompt
+                    )
+                response = await asyncio.to_thread(sync_stream)
+                for chunk in response:
+                    if chunk.text:
+                        yield chunk.text
+        except Exception as e:
+            logger.error(f"Gemini streaming failed: {e}")
+            raise

@@ -55,11 +55,16 @@ export function SettingsDialog() {
         <div className="mt-4 space-y-4">
           <div className="space-y-2">
             <div className="text-sm font-semibold text-slate-900 dark:text-slate-50">Model</div>
-            <Input
-              value={settings.modelName}
-              onChange={(e) => updateSettings({ modelName: e.target.value })}
-              placeholder="gemini-2.5-flash"
-            />
+            <Select value={settings.modelName} onValueChange={(v) => updateSettings({ modelName: v })}>
+              <SelectTrigger>
+                <SelectValue placeholder="Choose a model" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="qwen2.5:3b">Qwen 2.5 (3B - Local)</SelectItem>
+                <SelectItem value="phi">Phi (Local)</SelectItem>
+                <SelectItem value="gemini-2.5-flash">Gemini 2.5 Flash (Cloud)</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="space-y-2">

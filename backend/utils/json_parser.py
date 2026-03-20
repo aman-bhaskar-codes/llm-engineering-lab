@@ -75,7 +75,7 @@ def extract_json(text: str) -> Optional[Dict[str, Any]]:
         logger.warning(f"Failed to parse JSON: {e}")
         return None
 
-def sanitize_json_response(data: Any) -> Dict[str, Any]:
+def sanitize_json_response(data: Any, schema: dict = None) -> Dict[str, Any]:
     """
     Ensure API response is ALWAYS a valid dictionary with the strict
     SaaS schema required (Step 12/Final Output Format).

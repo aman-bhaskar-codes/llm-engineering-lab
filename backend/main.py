@@ -21,8 +21,15 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing system...")
     await redis_manager.connect()
     await graph_memory.connect()
+    
+    from worker import _get_redis_pool
+    app.state.redis_pool = await _get_redis_pool()
+    
     yield
+    
     # Shutdown
+    if app.state.redis_pool:
+        await app.state.redis_pool.close()
     await redis_manager.disconnect()
     await graph_memory.close()
     logger.info("System shutdown complete.")

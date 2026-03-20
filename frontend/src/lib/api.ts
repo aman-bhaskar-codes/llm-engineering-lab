@@ -31,16 +31,63 @@ export async function healthCheck() {
 }
 
 export type ExtractProgress = (progress: number) => void;
+export type ExtractStreamToken = (token: string) => void;
+
+function listenToExtractionStream(
+  jobId: string, 
+  modelName: string, 
+  onProgress?: ExtractProgress, 
+  onStreamToken?: ExtractStreamToken
+): Promise<ExtractionApiResponse> {
+  return new Promise((resolve, reject) => {
+    const sseUrl = `${getBaseUrl()}/extract/${jobId}/stream`;
+    const eventSource = new EventSource(sseUrl);
+
+    let currentProgress = 30;
+    eventSource.onmessage = (event) => {
+       onStreamToken?.(event.data);
+       currentProgress = Math.min(99, currentProgress + 1);
+       onProgress?.(currentProgress);
+    };
+
+    eventSource.addEventListener("done", (event) => {
+       try {
+         const parsed = JSON.parse(event.data);
+         const response: ExtractionApiResponse = {
+           result: parsed.result,
+           conversation_id: parsed.conversation_id,
+           extraction_id: parsed.extraction_id,
+           cached: false,
+           metadata: { processing_time: "async queue", model_used: modelName, source: "stream" }
+         };
+         eventSource.close();
+         onProgress?.(100);
+         resolve(response);
+       } catch(e: any) {
+         eventSource.close();
+         reject(new Error("Failed to parse final JSON payload from stream: " + e.message));
+       }
+    });
+
+    eventSource.addEventListener("error", (event) => {
+       eventSource.close();
+       const errData = (event as any).data ? String((event as any).data) : "Stream closed unexpectedly or LLM failed.";
+       reject(new Error(`Extraction stream error: ${errData}`));
+    });
+  });
+}
 
 /**
- * PDF / File Extraction (Advanced/Reasoning Mode)
+ * PDF / File Extraction (real file uploads only)
  */
 export async function extractPdf(
   file: File,
   onProgress?: ExtractProgress,
-  conversationId?: string
+  conversationId?: string,
+  onStreamToken?: ExtractStreamToken
 ): Promise<ExtractionApiResponse> {
-  return await new Promise((resolve, reject) => {
+  const modelName = useAppStore.getState().settings.modelName || "qwen2.5:3b";
+  const jobId = await new Promise<string>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${getBaseUrl()}/extract-file`, true);
     const headers = getAuthHeader();
@@ -49,18 +96,17 @@ export async function extractPdf(
 
     xhr.upload.onprogress = (e) => {
       if (!e.lengthComputable) return;
-      const pct = Math.round((e.loaded / e.total) * 100);
-      onProgress?.(Math.max(0, Math.min(100, pct)));
+      const pct = Math.round((e.loaded / e.total) * 30); // 0-30% for upload
+      onProgress?.(pct);
     };
 
     xhr.onload = () => {
       try {
         if (xhr.status < 200 || xhr.status >= 300) {
-          console.error(`File Upload failed: ${xhr.status} ${xhr.responseText}`);
           return reject(new Error(`Request failed (${xhr.status})`));
         }
         const body = JSON.parse(xhr.responseText);
-        resolve(body as ExtractionApiResponse);
+        resolve(body.job_id);
       } catch (err) {
         reject(err);
       }
@@ -70,77 +116,55 @@ export async function extractPdf(
 
     const formData = new FormData();
     formData.append("file", file, file.name);
-    if (conversationId) {
-      formData.append("conversation_id", conversationId);
-    }
+    formData.append("model", modelName);
+    if (conversationId) formData.append("conversation_id", conversationId);
+    
     xhr.send(formData);
   });
+
+  return listenToExtractionStream(jobId, modelName, onProgress, onStreamToken);
 }
 
 /**
- * Text Extraction (Simple Mode - Direct JSON)
+ * Unified Text Extraction
  */
-export async function extractTextViaJsonEndpoint(
+export async function extractText(
   text: string,
   mode: ExtractionMode,
-  conversationId?: string
+  onProgress?: ExtractProgress,
+  conversationId?: string,
+  onStreamToken?: ExtractStreamToken
 ): Promise<ExtractionApiResponse> {
+  onProgress?.(10);
+
+  const modelName = useAppStore.getState().settings.modelName || "qwen2.5:3b";
   const res = await fetch(`${getBaseUrl()}/extract`, {
     method: "POST",
-    headers: { 
-      "Content-Type": "application/json", 
-      ...(getAuthHeader() as any) 
+    headers: {
+      "Content-Type": "application/json",
+      ...(getAuthHeader() as any)
     },
     body: JSON.stringify({
       text,
       mode,
+      model: modelName,
       schema: DEFAULT_SCHEMA,
       conversation_id: conversationId
     })
   });
 
   if (!res.ok) {
-    throw new Error(`Extraction failed (${res.status})`);
-  }
-  return (await res.json()) as ExtractionApiResponse;
-}
-
-/**
- * Unified Extraction Entry Point
- */
-export async function extractText(
-  text: string,
-  mode: ExtractionMode,
-  onProgress?: ExtractProgress,
-  conversationId?: string
-): Promise<ExtractionApiResponse> {
-  onProgress?.(10);
-  
-  // Simple Mode is ALWAYS direct Text -> JSON
-  if (mode === "simple") {
-    const result = await extractTextViaJsonEndpoint(text, mode, conversationId);
-    onProgress?.(100);
-    return result;
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Extraction enqueue failed (${res.status}): ${detail}`);
   }
 
-  // Fallback for Advanced/Reasoning (PDF-based for legacy/OCR support)
-  onProgress?.(20);
-  const file = createPdfFileFromText(text);
-  const result = await extractPdf(
-    file,
-    (p) => onProgress?.(20 + Math.round(p * 0.8)),
-    conversationId
-  );
-  return result;
-}
+  const { job_id } = await res.json();
+  if (!job_id) {
+    throw new Error("No job ID returned from server.");
+  }
 
-function createPdfFileFromText(text: string): File {
-  const doc = new jsPDF({ unit: "pt", format: "letter" });
-  const margin = 40;
-  const lines = doc.splitTextToSize(text, doc.internal.pageSize.getWidth() - margin * 2);
-  doc.text(lines, margin, margin);
-  const blob = doc.output("blob");
-  return new File([blob], "input.pdf", { type: "application/pdf" });
+  onProgress?.(30);
+  return listenToExtractionStream(job_id, modelName, onProgress, onStreamToken);
 }
 
 export type BackendConversation = {

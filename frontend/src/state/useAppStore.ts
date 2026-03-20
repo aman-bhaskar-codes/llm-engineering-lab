@@ -120,7 +120,7 @@ function createEmptySession(): ChatSession {
 }
 
 const defaultSettings: AppSettings = {
-  modelName: "gemini-2.5-flash",
+  modelName: "qwen2.5:3b",
   defaultMode: "simple",
   outputFormat: "strict",
   memoryEnabled: true

@@ -161,7 +161,10 @@ export function AppShell() {
   async function handleDeleteChat(id: string) {
     if (!confirm("Are you sure you want to delete this chat?")) return;
     try {
-      await deleteConversation(id);
+      const sess = sessions.find((s) => s.id === id);
+      if (sess?.backendConversationId) {
+        await deleteConversation(sess.backendConversationId);
+      }
       deleteSession(id);
     } catch {
       toast.error("Failed to delete chat.");
@@ -184,26 +187,22 @@ export function AppShell() {
 
       try {
         const conv = await getConversation(String(payload.conversation_id));
-        const messages = (conv.messages ?? []).map((m) => {
+        const messages: any[] = [];
+        
+        (conv.messages ?? []).forEach((m) => {
           if (m.role === "user") {
-            return {
+            messages.push({
               id: m.id,
               role: "user" as const,
               createdAt: Date.parse(m.created_at),
               input: { text: m.content, attachment: { kind: "none" as const } }
-            };
+            });
+            return;
           }
-
           let parsed: any = {};
-          try {
-            parsed = JSON.parse(m.content);
-          } catch {
-            parsed = {};
-          }
-          // Handle standardized SaaS format
+          try { parsed = JSON.parse(m.content); } catch { parsed = {}; }
           const extracted = parsed?.result ?? parsed;
-
-          return {
+          messages.push({
             id: m.id,
             role: "assistant" as const,
             createdAt: Date.parse(m.created_at),
@@ -216,9 +215,36 @@ export function AppShell() {
                 issues: extracted?.issues ?? []
               }
             }
-          };
+          });
         });
 
+        (conv.extractions ?? []).forEach((e) => {
+          const ts = Date.parse(e.created_at);
+          if (e.input_text) {
+            messages.push({
+              id: `u_${e.id}`,
+              role: "user" as const,
+              createdAt: ts - 1,
+              input: { text: e.input_text, attachment: { kind: "none" as const } }
+            });
+          }
+          messages.push({
+            id: `a_${e.id}`,
+            role: "assistant" as const,
+            createdAt: ts,
+            output: {
+              mode: (e.mode || "simple") as any,
+              result: {
+                data: e.extracted_json || {},
+                confidence: e.confidence || 0.8,
+                valid: true,
+                issues: []
+              }
+            }
+          });
+        });
+        
+        messages.sort((a, b) => a.createdAt - b.createdAt);
         hydrateSessionMessages({ sessionId: activeSession.id, title: conv.title, messages });
       } catch {
         // Fail open.
@@ -310,40 +336,64 @@ export function AppShell() {
                     if (!backendId) return;
                     
                     const conv = await getConversation(String(backendId));
-                    const messages = (conv.messages ?? []).map((m) => {
+                    const messages: any[] = [];
+                    
+                    (conv.messages ?? []).forEach((m) => {
                       if (m.role === "user") {
-                        return {
+                        messages.push({
                           id: m.id,
                           role: "user" as const,
                           createdAt: Date.parse(m.created_at),
                           input: { text: m.content, attachment: { kind: "none" as const } }
-                        };
+                        });
+                        return;
                       }
-
                       let parsed: any = {};
-                      try {
-                        parsed = JSON.parse(m.content);
-                      } catch {
-                        parsed = {};
-                      }
+                      try { parsed = JSON.parse(m.content); } catch { parsed = {}; }
                       const extracted = parsed?.result ?? parsed;
-
-                      return {
+                      messages.push({
                         id: m.id,
                         role: "assistant" as const,
                         createdAt: Date.parse(m.created_at),
                         output: {
-                          mode: "simple" as any,
+                          mode: parsed?.mode ?? "simple",
                           result: {
                             data: extracted?.data ?? extracted ?? {},
-                            confidence: extracted?.confidence,
-                            valid: extracted?.valid,
-                            issues: extracted?.issues
+                            confidence: extracted?.confidence ?? 0.8,
+                            valid: extracted?.valid ?? true,
+                            issues: extracted?.issues ?? []
                           }
                         }
-                      };
+                      });
                     });
 
+                    (conv.extractions ?? []).forEach((e) => {
+                      const ts = Date.parse(e.created_at);
+                      if (e.input_text) {
+                        messages.push({
+                          id: `u_${e.id}`,
+                          role: "user" as const,
+                          createdAt: ts - 1,
+                          input: { text: e.input_text, attachment: { kind: "none" as const } }
+                        });
+                      }
+                      messages.push({
+                        id: `a_${e.id}`,
+                        role: "assistant" as const,
+                        createdAt: ts,
+                        output: {
+                          mode: (e.mode || "simple") as any,
+                          result: {
+                            data: e.extracted_json || {},
+                            confidence: e.confidence || 0.8,
+                            valid: true,
+                            issues: []
+                          }
+                        }
+                      });
+                    });
+                    
+                    messages.sort((a, b) => a.createdAt - b.createdAt);
                     hydrateSessionMessages({ sessionId: id, title: conv.title, messages });
                   } catch {
                     // Fail open.
@@ -414,7 +464,7 @@ export function AppShell() {
             </div>
           ) : null}
 
-          <div className="flex-1">
+          <div className="flex-1 min-h-0 overflow-hidden relative">
             <ChatArea
               session={activeSession}
               mode={selectedMode}

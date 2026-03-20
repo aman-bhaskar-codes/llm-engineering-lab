@@ -20,5 +20,13 @@ export type ExtractionApiResponse = {
   conversation_id?: string;
   extraction_id?: string;
   result: ExtractionResult;
+  cached?: boolean;
+  metadata?: {
+    processing_time?: string;
+    model_used?: string;
+    tokens_used?: number;
+    source?: string;
+  };
+  mode?: ExtractionMode;
 };
 
