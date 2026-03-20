@@ -65,9 +65,8 @@ async def _reasoning_pass(text: str, schema: Dict[str, Any]) -> str:
     
     GOAL:
     - Identify key entities.
-    - Define normalization rules (e.g. date formats, name casing).
-    - Infer missing but implied fields (e.g. seniority based on years/titles).
-    - Identify potentially ambiguous sections.
+    - Define normalization rules.
+    - Infer missing fields (e.g. seniority).
     
     Return a concise set of reasoning guidelines for a secondary extraction agent.
     """
@@ -82,11 +81,6 @@ async def _verification_pass(text: str, data: Dict[str, Any], schema: Dict[str, 
     SCHEMA: {json.dumps(schema)}
     PROPOSED DATA: {json.dumps(data)}
     
-    CHECK FOR:
-    1. Hallucinations (data not in text).
-    2. Normalization errors.
-    3. Consistency.
-    
     RETURN JSON ONLY:
     {{
         "valid": true/false,
@@ -96,21 +90,11 @@ async def _verification_pass(text: str, data: Dict[str, Any], schema: Dict[str, 
     }}
     """
     raw_res = await asyncio.to_thread(generate_text, prompt)
-    try:
-        # Find JSON block
-        start = raw_res.find("{")
-        end = raw_res.rfind("}") + 1
-        return json.loads(raw_res[start:end])
-    except Exception:
-        logger.warning(f"Verification failed to parse LLM output: {raw_res[:200]}")
-        return {"valid": True, "confidence": 0.7, "issues": ["Verification failed to parse"]}
-    try:
-        # Find JSON block
-        start = raw_res.find("{")
-        end = raw_res.rfind("}") + 1
-        return json.loads(raw_res[start:end])
-    except Exception:
-        return {"valid": True, "confidence": 0.7, "issues": ["Verification failed to parse"]}
+    from utils.json_parser import extract_json
+    extracted = extract_json(raw_res)
+    if extracted:
+        return extracted
+    return {"valid": True, "confidence": 0.7, "issues": ["Verification sub-parse failed"]}
 
 def _aggregate_results(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     final_data = {}

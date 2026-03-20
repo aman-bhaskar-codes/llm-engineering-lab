@@ -1,5 +1,10 @@
 import asyncio
+import sys
+import os
 from logging.config import fileConfig
+
+# Add backend to path so we can import from the new structure
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backend")))
 
 from alembic import context
 from sqlalchemy.ext.asyncio import create_async_engine
