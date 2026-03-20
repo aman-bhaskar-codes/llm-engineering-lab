@@ -21,12 +21,19 @@ async def process_extraction_job(ctx: dict, job_id: str, text: str, mode: str, u
     from engine.reasoning_engine import ReasoningEngine
     from utils.chunker import Chunker
     import redis.asyncio as aioredis
-    from db.session import async_session_maker
+    from db.session import AsyncSessionLocal
     from utils.json_parser import extract_json, sanitize_json_response
     from db.repositories.conversations import create_conversation, add_extraction
-    from extraction.helpers import _title_from_text
-    from memory.semantic_memory import extract_semantic_items, upsert_semantic_memory
+    from memory.semantic_extractor import extract_semantic_items
+    from memory.relationship_repo import get_relationship_repo
     from memory.graph_memory import graph_memory
+
+    # Local helper since we don't have a shared one yet
+    def _get_title(t: str) -> str:
+        cleaned = " ".join((t or "").split())
+        if not cleaned:
+            return "New chat"
+        return cleaned[:40]
 
     logger.info(f"Worker {job_id} started: {mode} mode | User {user_id}")
     if schema is None:
@@ -50,9 +57,14 @@ async def process_extraction_job(ctx: dict, job_id: str, text: str, mode: str, u
         accumulated_text = ""
         
         # 1. STREAM TO PUBSUB
-        async for chunk in engine.run_stream(text, schema, user_id) if mode == "reasoning" else engine.run_stream(text, schema):
-            accumulated_text += chunk
-            await rc.publish(channel, chunk)
+        if mode == "reasoning":
+            async for chunk in engine.run_stream(text, schema, user_id):
+                accumulated_text += chunk
+                await rc.publish(channel, chunk)
+        else:
+            async for chunk in engine.run_stream(text, schema):
+                accumulated_text += chunk
+                await rc.publish(channel, chunk)
             
         # 2. PARSE AND SANITIZE THE FINAL OUTPUT
         raw_json = extract_json(accumulated_text)
@@ -72,8 +84,8 @@ async def process_extraction_job(ctx: dict, job_id: str, text: str, mode: str, u
         import uuid
         uid = uuid.UUID(user_id)
         
-        async with async_session_maker() as db:
-            conversation = await create_conversation(db, user_id=uid, title=_title_from_text(text))
+        async with AsyncSessionLocal() as db:
+            conversation = await create_conversation(db, user_id=uid, title=_get_title(text))
             
             extraction_obj = await add_extraction(
                 db,
@@ -88,7 +100,12 @@ async def process_extraction_job(ctx: dict, job_id: str, text: str, mode: str, u
             if result.valid:
                 try:
                     semantic_items = await extract_semantic_items(result.model_dump())
-                    await upsert_semantic_memory(db, user_id=uid, items=semantic_items, source_extraction_id=extraction_obj.id)
+                    repo = get_relationship_repo(db)
+                    await repo.upsert_relationships(
+                        user_id=uid,
+                        semantic_items=[(k, v) for k, v, emb in semantic_items],
+                        source_extraction_id=extraction_obj.id
+                    )
                 except Exception as mem_err:
                     logger.warning(f"Worker semantic memory skip: {mem_err}")
                     
