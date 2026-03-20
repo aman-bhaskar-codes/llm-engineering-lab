@@ -155,6 +155,13 @@ export function Sidebar({
           )}
         </div>
       </ScrollArea>
+
+      <div className="border-t border-slate-200 p-4 dark:border-slate-800">
+        <Button variant="outline" className="w-full justify-start gap-2" onClick={onOpenSettings}>
+          <span className="text-lg">👤</span>
+          <span className="truncate">{currentSessionId ? "Account Settings" : "Sign in / Account"}</span>
+        </Button>
+      </div>
     </aside>
   );
 }

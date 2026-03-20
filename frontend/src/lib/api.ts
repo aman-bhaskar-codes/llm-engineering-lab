@@ -54,11 +54,12 @@ export async function extractPdf(
     xhr.onload = () => {
       try {
         if (xhr.status < 200 || xhr.status >= 300) {
-          return reject(new Error(`Request failed (${xhr.status}): ${xhr.responseText}`));
+          logger.error(`PDF Upload failed: ${xhr.status} ${xhr.responseText}`);
+          return reject(new Error(`Request failed (${xhr.status})`));
         }
         const body = JSON.parse(xhr.responseText);
-        // Backend returns: { result: { data, confidence, valid, issues } }
-        resolve(body?.result ?? body);
+        // Correctly return the full wrapper
+        resolve(body as ExtractionApiResponse);
       } catch (err) {
         reject(err);
       }
@@ -98,7 +99,10 @@ async function extractTextViaJsonEndpoint(
   const body = await res.json().catch(() => null);
   if (!body) return null;
 
-  if (body.result) return body as ExtractionApiResponse;
+  // We expect { result: {...}, conversation_id: "...", ... }
+  if (body.result) {
+    return body as ExtractionApiResponse;
+  }
   return null;
 }
 

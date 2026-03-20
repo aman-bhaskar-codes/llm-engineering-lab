@@ -167,14 +167,14 @@ export function AppShell() {
       setSessionBackendConversationId(activeSession.id, payload.conversation_id);
 
       try {
-        const conv = await getConversation(payload.conversation_id);
+        const conv = await getConversation(String(payload.conversation_id));
         const messages = (conv.messages ?? []).map((m) => {
           if (m.role === "user") {
             return {
               id: m.id,
               role: "user" as const,
               createdAt: Date.parse(m.created_at),
-              input: { text: m.content, attachment: { kind: "none" } }
+              input: { text: m.content, attachment: { kind: "none" as const } }
             };
           }
 
@@ -184,6 +184,7 @@ export function AppShell() {
           } catch {
             parsed = {};
           }
+          // Handle standardized SaaS format
           const extracted = parsed?.result ?? parsed;
 
           return {
@@ -191,12 +192,12 @@ export function AppShell() {
             role: "assistant" as const,
             createdAt: Date.parse(m.created_at),
             output: {
-              mode: "simple" as any,
+              mode: parsed?.mode ?? "simple",
               result: {
                 data: extracted?.data ?? extracted ?? {},
-                confidence: extracted?.confidence,
-                valid: extracted?.valid,
-                issues: extracted?.issues
+                confidence: extracted?.confidence ?? 0.8,
+                valid: extracted?.valid ?? true,
+                issues: extracted?.issues ?? []
               }
             }
           };
@@ -213,7 +214,7 @@ export function AppShell() {
         const mem = await getMemory();
         clearAllMemory();
 
-        const semantic = (mem.semantic ?? []).flatMap((m) => {
+        const semantic: any[] = (mem.semantic ?? []).flatMap((m: any) => {
           const sourceId = m.source_extraction_id ?? "unknown";
           const createdAt = Date.now();
 
@@ -222,42 +223,18 @@ export function AppShell() {
             return skills.map((skill) => ({
               id: `skill:${sourceId}:${skill}`,
               tag: skill,
-              category: "skill" as const,
+              category: "skill" as any,
               createdAt
             }));
           }
 
-          if (m.key === "domain") {
-            const domain = m.value?.domain ?? "unknown";
+          if (m.key === "domain" || m.key === "role" || m.key === "name") {
+            const val = m.value?.[m.key] ?? m.value ?? "unknown";
             return [
               {
-                id: `domain:${sourceId}:${domain}`,
-                tag: domain,
-                category: "entity" as const,
-                createdAt
-              }
-            ];
-          }
-
-          if (m.key === "role") {
-            const role = m.value?.role ?? "unknown";
-            return [
-              {
-                id: `role:${sourceId}:${role}`,
-                tag: role,
-                category: "entity" as const,
-                createdAt
-              }
-            ];
-          }
-
-          if (m.key === "name") {
-            const name = m.value?.name ?? "unknown";
-            return [
-              {
-                id: `name:${sourceId}:${name}`,
-                tag: name,
-                category: "entity" as const,
+                id: `${m.key}:${sourceId}:${val}`,
+                tag: String(val),
+                category: "entity" as any,
                 createdAt
               }
             ];
@@ -266,8 +243,8 @@ export function AppShell() {
           return [
             {
               id: `${m.key}:${sourceId}`,
-              tag: m.key,
-              category: "other" as const,
+              tag: String(m.key),
+              category: "other" as any,
               createdAt
             }
           ];
@@ -319,7 +296,7 @@ export function AppShell() {
                           id: m.id,
                           role: "user" as const,
                           createdAt: Date.parse(m.created_at),
-                          input: { text: m.content, attachment: { kind: "none" } }
+                          input: { text: m.content, attachment: { kind: "none" as const } }
                         };
                       }
 
@@ -444,19 +421,20 @@ export function AppShell() {
               sessions={sessions}
               currentSessionId={activeSession.id}
               onSelectSession={(id) => {
-                setCurrentSessionId(id);
+                const sid = String(id);
+                setCurrentSessionId(sid);
                   void (async () => {
                     try {
-                      const sess = sessions.find((s) => s.id === id);
-                      const backendId = sess?.backendConversationId ?? id;
-                      const conv = await getConversation(backendId);
+                      const sess = sessions.find((s) => s.id === sid);
+                      const backendId = sess?.backendConversationId ?? sid;
+                      const conv = await getConversation(String(backendId));
                       const messages = (conv.messages ?? []).map((m) => {
                         if (m.role === "user") {
                           return {
                             id: m.id,
                             role: "user" as const,
                             createdAt: Date.parse(m.created_at),
-                            input: { text: m.content, attachment: { kind: "none" } }
+                            input: { text: m.content, attachment: { kind: "none" as const } }
                           };
                         }
 
@@ -473,18 +451,18 @@ export function AppShell() {
                           role: "assistant" as const,
                           createdAt: Date.parse(m.created_at),
                           output: {
-                            mode: "simple" as any,
+                            mode: parsed?.mode ?? "simple",
                             result: {
                               data: extracted?.data ?? extracted ?? {},
-                              confidence: extracted?.confidence,
-                              valid: extracted?.valid,
-                              issues: extracted?.issues
+                              confidence: extracted?.confidence ?? 0.8,
+                              valid: extracted?.valid ?? true,
+                              issues: extracted?.issues ?? []
                             }
                           }
                         };
                       });
 
-                      hydrateSessionMessages({ sessionId: id, title: conv.title, messages });
+                      hydrateSessionMessages({ sessionId: sid, title: conv.title, messages });
                     } catch {
                       // Fail open.
                     }
