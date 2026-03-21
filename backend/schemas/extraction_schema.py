@@ -20,7 +20,7 @@ class ExtractTextRequest(BaseModel):
 class ExtractRequest(BaseModel):
     text: str
     mode: Optional[str] = "simple"
-    model: Optional[str] = "qwen2.5:3b"
+    model: Optional[str] = "phi3:mini"
     schema_def: Optional[Dict[str, Any]] = Field(None, alias="schema")
 
 

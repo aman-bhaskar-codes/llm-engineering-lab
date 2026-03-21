@@ -120,7 +120,7 @@ function createEmptySession(): ChatSession {
 }
 
 const defaultSettings: AppSettings = {
-  modelName: "qwen2.5:3b",
+  modelName: "phi3:mini",
   defaultMode: "simple",
   outputFormat: "strict",
   memoryEnabled: true

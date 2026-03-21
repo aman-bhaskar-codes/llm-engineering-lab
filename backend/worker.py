@@ -12,7 +12,7 @@ redis_settings = RedisSettings.from_dsn(settings.redis_url)
 async def _get_redis_pool():
     return await create_pool(redis_settings)
 
-async def process_extraction_job(ctx: dict, job_id: str, text: str, mode: str, user_id: str, model: str = "qwen2.5:3b", schema: dict = None) -> dict:
+async def process_extraction_job(ctx: dict, job_id: str, text: str, mode: str, user_id: str, model: str = "phi3:mini", schema: dict = None) -> dict:
     import time
     import json
     import uuid
@@ -58,6 +58,9 @@ async def process_extraction_job(ctx: dict, job_id: str, text: str, mode: str, u
         try:
             async with asyncio.timeout(120):
                 async for chunk in generator:
+                    # Skip engine error yields — they pollute accumulated text
+                    if chunk.startswith("\n[Error") or chunk.startswith("[Error"):
+                        continue
                     accumulated_text += chunk
                     await rc.rpush(chunks_key, chunk)
                     await rc.publish(channel, "new_chunk")
@@ -90,12 +93,17 @@ async def process_extraction_job(ctx: dict, job_id: str, text: str, mode: str, u
             logger.warning(f"Primary model ({model}) failed: {e}")
 
         # ── 2. FALLBACK if primary produced nothing ──
-        if not accumulated_text.strip() and model != "gemini":
-            logger.info(f"Worker {job_id}: primary empty, falling back to Gemini...")
+        if not accumulated_text.strip():
+            # Determine fallback model (bidirectional)
+            if "gemini" in model.lower():
+                fallback_model = "phi3:mini"  # Gemini failed → try Ollama
+            else:
+                fallback_model = "gemini"  # Ollama failed → try Gemini
+            logger.info(f"Worker {job_id}: primary '{model}' empty, falling back to '{fallback_model}'...")
             await rc.delete(chunks_key)
             accumulated_text = ""
             try:
-                client = get_llm_client("gemini")
+                client = get_llm_client(fallback_model)
                 engine = _make_engine(client, mode)
                 await _run_stream(engine, mode)
             except Exception as e:

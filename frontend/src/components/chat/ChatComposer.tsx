@@ -37,8 +37,11 @@ export function ChatComposer({
   const onDrop = React.useCallback((acceptedFiles: File[]) => {
     const f = acceptedFiles[0];
     if (!f) return;
-    if (f.type && !f.type.includes("pdf") && !f.name.toLowerCase().endsWith(".pdf")) {
-      toast.error("Please upload a PDF file.");
+    const isPdf = f.type.includes("pdf") || f.name.toLowerCase().endsWith(".pdf");
+    const isImage = f.type.startsWith("image/") || /\.(png|jpe?g|webp)$/i.test(f.name);
+    
+    if (!isPdf && !isImage) {
+      toast.error("Please upload a PDF or Image (PNG/JPG) file.");
       return;
     }
     setFile(f);
@@ -46,7 +49,10 @@ export function ChatComposer({
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: { "application/pdf": [".pdf"] },
+    accept: { 
+      "application/pdf": [".pdf"],
+      "image/*": [".png", ".jpg", ".jpeg", ".webp"]
+    },
     multiple: false
   });
 
@@ -59,7 +65,7 @@ export function ChatComposer({
     const hasFile = !!file;
 
     if (!hasText && !hasFile) {
-      toast.error("Add text or upload a PDF to extract.");
+      toast.error("Add text or upload a file to extract.");
       return;
     }
 
@@ -125,7 +131,7 @@ export function ChatComposer({
             placeholder={
               mode === "simple" 
                 ? "Paste text for fast extraction... (Simple Mode = Text Only)" 
-                : "Paste text or upload a PDF for advanced processing..."
+                : "Paste text or upload a document (PDF/Image) for advanced processing..."
             }
             className="min-h-[110px]"
           />
@@ -143,10 +149,10 @@ export function ChatComposer({
               <div className="flex items-center gap-2">
                 <Upload className="h-4 w-4 text-slate-600 dark:text-slate-300" />
                 <div className="text-sm text-slate-700 dark:text-slate-200">
-                  Drag & drop PDF here, or click to browse
+                  Drag & drop PDF/Image here, or click to browse
                 </div>
               </div>
-              <div className="text-xs text-slate-500 dark:text-slate-400">{file ? "PDF selected" : "Advanced/Reasoning only"}</div>
+              <div className="text-xs text-slate-500 dark:text-slate-400">{file ? "File selected" : "Advanced/Reasoning only"}</div>
               <input {...getInputProps()} />
             </div>
           )}
@@ -190,7 +196,7 @@ export function ChatComposer({
             {extractingRef.current ? "Extracting..." : "Extract"}
           </Button>
 
-          <Input disabled value={file ? "PDF input" : text.trim() ? "Text input" : "Ready"} />
+          <Input disabled value={file ? "File input" : text.trim() ? "Text input" : "Ready"} />
         </div>
       </div>
     </div>

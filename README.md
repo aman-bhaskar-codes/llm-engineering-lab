@@ -9,7 +9,7 @@ Built with **FastAPI**, **React (Next.js)**, **Zustand**, **PostgreSQL**, **Redi
 | Feature | Description |
 |---|---|
 | **Real-Time Streaming** | Token-by-token SSE streaming via Redis pub/sub buffer — zero data loss even on late connections |
-| **Multi-Model Inference** | Local-first (Ollama: `qwen2.5:3b`, `phi`) with automatic cloud fallback (Gemini) |
+| **Multi-Model Inference** | Local-first (Ollama: `gemma:2b`, `phi3:mini`, `mistral:latest`) with automatic cloud fallback (Gemini Pro) |
 | **Three Extraction Modes** | `Simple` (fast), `Advanced` (multi-step for noisy data), `Reasoning` (chain-of-thought with think logs) |
 | **Async Job Processing** | Background workers via `arq` + Redis for non-blocking, scalable extraction |
 | **Semantic Memory** | PostgreSQL persistence + optional Neo4j graph memory for entity relationships |
@@ -92,8 +92,9 @@ Open `http://localhost:3000` in your browser.
 ### 3. Pull Local Models (Recommended)
 ```bash
 ollama serve       # Start Ollama
-ollama pull qwen2.5:3b
-ollama pull phi
+ollama pull gemma:2b
+ollama pull phi3:mini
+ollama pull mistral:latest
 ```
 
 ## 🔧 Environment Variables
@@ -104,7 +105,7 @@ ollama pull phi
 | `DATABASE_URL` | `postgresql+asyncpg://...` | PostgreSQL connection string |
 | `REDIS_URL` | `redis://localhost:6379` | Redis URL for cache, streaming, and rate limiting |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama API endpoint |
-| `OLLAMA_MODEL_NAME` | `qwen2.5:3b` | Default local model |
+| `OLLAMA_MODEL_NAME` | `phi3:mini` | Default local model |
 | `NEO4J_URI` | `bolt://localhost:7687` | Neo4j bolt URI (optional) |
 | `JWT_SECRET` | `dev-secret-change-me` | **Change in production!** |
 

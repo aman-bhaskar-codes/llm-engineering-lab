@@ -65,6 +65,9 @@ function listenToExtractionStream(
       if (settled) return;
       const data: string = event.data;
 
+      // Heartbeat — ignore silently
+      if (data === "[HB]") return;
+
       // Terminal: success
       if (data.startsWith("[DONE]")) {
         const json = data.slice(6);
@@ -106,11 +109,10 @@ function listenToExtractionStream(
       onProgress?.(currentProgress);
     };
 
+    // Do NOT reject on onerror — EventSource reconnects automatically.
+    // We rely on [DONE]/[ERROR] protocol + 3-min timeout instead.
     eventSource.onerror = () => {
-      // Only reject if we never got a terminal event
-      if (!settled) {
-        settle(() => reject(new Error("Connection lost. Please try again.")));
-      }
+      // no-op — connection drops are handled by EventSource auto-reconnect
     };
   });
 }
@@ -124,7 +126,7 @@ export async function extractPdf(
   conversationId?: string,
   onStreamToken?: ExtractStreamToken
 ): Promise<ExtractionApiResponse> {
-  const modelName = useAppStore.getState().settings.modelName || "qwen2.5:3b";
+  const modelName = useAppStore.getState().settings.modelName || "phi3:mini";
   const jobId = await new Promise<string>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${getBaseUrl()}/extract-file`, true);
@@ -175,7 +177,7 @@ export async function extractText(
 ): Promise<ExtractionApiResponse> {
   onProgress?.(10);
 
-  const modelName = useAppStore.getState().settings.modelName || "qwen2.5:3b";
+  const modelName = useAppStore.getState().settings.modelName || "phi3:mini";
   const res = await fetch(`${getBaseUrl()}/extract`, {
     method: "POST",
     headers: {

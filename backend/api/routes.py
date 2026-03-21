@@ -85,7 +85,7 @@ async def extract_unified(
     text = payload.text
     schema = payload.schema_def
     mode = payload.mode or "simple"
-    model = payload.model or "qwen2.5:3b"
+    model = payload.model or "phi3:mini"
     
     job_id = f"job:{uuid.uuid4().hex}"
     
@@ -99,7 +99,7 @@ async def extract_unified(
 
 @router.get("/extract/{job_id}/stream")
 async def extract_stream(job_id: str):
-    """SSE endpoint — all events sent as default 'message' type with prefix protocol."""
+    """SSE endpoint — flat protocol with heartbeats to keep connection alive."""
     from core.config import settings
     
     async def event_generator():
@@ -113,16 +113,17 @@ async def extract_stream(job_id: str):
 
         cursor = 0
         max_wait = 300
-        waited = 0
+        elapsed = 0.0
+        hb_counter = 0
         try:
-            while waited < max_wait:
+            while elapsed < max_wait:
                 # 1. Drain buffer
                 chunks = await rc.lrange(chunks_key, cursor, -1)
                 if chunks:
                     for chunk in chunks:
                         yield {"data": chunk}
                         cursor += 1
-                    waited = 0
+                    elapsed = 0  # reset on activity
 
                 # 2. Check done
                 done_val = await rc.get(done_key)
@@ -141,22 +142,22 @@ async def extract_stream(job_id: str):
                         yield {"data": '[ERROR]{"error":"No result"}'}
                     break
 
-                # 3. Wait
-                try:
-                    await asyncio.wait_for(
-                        pubsub.get_message(ignore_subscribe_messages=True),
-                        timeout=0.5
-                    )
-                except asyncio.TimeoutError:
-                    pass
-                waited += 0.5
+                # 3. Send heartbeat every ~2s to keep connection alive
+                hb_counter += 1
+                if hb_counter % 4 == 0:  # every 4 * 0.5s = 2s
+                    yield {"data": "[HB]"}
+
+                # 4. Wait for pub/sub notification or poll
+                msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=0.5)
+                # We waited up to 0.5s
+                elapsed += 0.5
             else:
                 yield {"data": '[ERROR]{"error":"Timed out"}'}
         finally:
             await pubsub.unsubscribe(f"stream:{job_id}")
             await rc.close()
 
-    return EventSourceResponse(event_generator())
+    return EventSourceResponse(event_generator(), ping=5)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -169,6 +170,7 @@ async def extract_from_file(
     file: UploadFile = File(...),
     conversation_id: uuid.UUID | None = Form(default=None),
     mode: str = Form(default="advanced"),
+    model: str = Form(default="phi3:mini"),
     user_id: uuid.UUID = Depends(get_current_user_id_from_request),
     db: AsyncSession = Depends(get_db),
     _: None = Depends(check_rate_limit)
@@ -190,7 +192,7 @@ async def extract_from_file(
         if not redis_pool:
             raise HTTPException(status_code=500, detail="Worker pool not initialized")
             
-        await redis_pool.enqueue_job("process_extraction_job", job_id, text, mode, str(user_id), "qwen2.5:3b", None)
+        await redis_pool.enqueue_job("process_extraction_job", job_id, text, mode, str(user_id), model, None)
         return {"job_id": job_id, "status": "queued"}
     finally:
         if os.path.exists(file_path):

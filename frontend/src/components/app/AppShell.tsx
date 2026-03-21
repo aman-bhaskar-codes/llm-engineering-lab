@@ -318,6 +318,7 @@ export function AppShell() {
   }
 
   function handleStart(input: { text?: string; fileName?: string }) {
+    if (!activeSession) return;
     addUserMessage(activeSession.id, {
       role: "user",
       input: {
@@ -328,13 +329,14 @@ export function AppShell() {
   }
 
   function handleError(message: string) {
+    if (!activeSession) return;
     addAssistantMessage(activeSession.id, {
       role: "assistant",
       error: message
     });
   }
 
-  if (!isHydrated) return null; // Prevent hydration mismatch
+  if (!isHydrated || !activeSession) return null; // Prevent hydration mismatch and wait for session creation
 
   return (
     <div className="min-h-screen bg-background text-foreground">

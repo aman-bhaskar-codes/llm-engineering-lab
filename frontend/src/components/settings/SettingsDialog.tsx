@@ -60,9 +60,10 @@ export function SettingsDialog() {
                 <SelectValue placeholder="Choose a model" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="qwen2.5:3b">Qwen 2.5 (3B - Local)</SelectItem>
-                <SelectItem value="phi">Phi (Local)</SelectItem>
-                <SelectItem value="gemini-2.5-flash">Gemini 2.5 Flash (Cloud)</SelectItem>
+                <SelectItem value="gemma:2b">Gemma 2B (Local - Low Level)</SelectItem>
+                <SelectItem value="phi3:mini">Phi-3 Mini (Local - Medium Level)</SelectItem>
+                <SelectItem value="mistral:latest">Mistral (Local - High Reasoning)</SelectItem>
+                <SelectItem value="gemini-1.5-pro">Gemini 1.5 Pro (Cloud - Premium)</SelectItem>
               </SelectContent>
             </Select>
           </div>

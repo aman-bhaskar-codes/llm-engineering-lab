@@ -9,7 +9,7 @@ from core.config import settings
 
 
 class OllamaClient:
-    """Local LLM client via Ollama. Supports qwen2.5:3b and phi."""
+    """Local LLM client via Ollama. Supports gemma, phi3, mistral."""
 
     def __init__(self, model_name: str | None = None):
         self.model_name = model_name or settings.ollama_model_name

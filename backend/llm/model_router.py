@@ -2,33 +2,36 @@
 Model Router — Factory for LLM client selection.
 
 Supported models:
-  - "qwen2.5:3b"  → OllamaClient (local, high quality for size)
-  - "phi"          → OllamaClient (local, fastest)
-  - "gemini"       → GeminiClient (cloud, highest quality, rate-limited)
+  - "gemma:2b"     → OllamaClient (local, low level)
+  - "phi3:mini"    → OllamaClient (local, medium level)
+  - "mistral:latest" → OllamaClient (local, high level reasoning)
+  - "gemini-1.5-pro" → GeminiClient (cloud, premium, rate-limited)
 
-Default: qwen2.5:3b (local, no rate limits, fast)
+Default: phi3:mini (local, no rate limits, fast)
 """
 import logging
 
 logger = logging.getLogger(__name__)
 
 # Model → provider mapping
-OLLAMA_MODELS = {"qwen2.5:3b", "phi", "phi:latest", "qwen2.5:1.5b"}
+OLLAMA_MODELS = {"gemma:2b", "phi3:mini", "mistral:latest"}
 
 
-def get_llm_client(model_preference: str = "qwen2.5:3b"):
+def get_llm_client(model_preference: str = "phi3:mini"):
     """
     Returns an LLM client based on preference.
-    Defaults to Ollama qwen2.5:3b for reliability (no rate limits).
+    Defaults to Ollama phi3:mini for reliability (no rate limits).
     Falls back to Gemini only when explicitly requested.
     """
-    if model_preference in OLLAMA_MODELS or model_preference.startswith("qwen") or model_preference.startswith("phi"):
+    if model_preference in OLLAMA_MODELS or model_preference.startswith("gemma") or model_preference.startswith("phi3") or model_preference.startswith("mistral"):
         try:
             from llm.ollama_client import OllamaClient
             # Normalize model name
             model_name = model_preference
-            if model_preference == "phi":
-                model_name = "phi:latest"
+            if model_preference == "phi3":
+                model_name = "phi3:mini"
+            if model_preference == "mistral":
+                model_name = "mistral:latest"
             client = OllamaClient(model_name=model_name)
             client.model_name = model_name
             return client
