@@ -38,6 +38,83 @@ function StreamingOutput({ text }: { text: string }) {
   return <pre className="mt-3 whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-300">{text}</pre>;
 }
 
+const MemoizedMessageBubble = React.memo(function MemoizedMessageBubble({
+  m,
+  outputFormat,
+  onRetry
+}: {
+  m: any;
+  outputFormat: OutputFormat;
+  onRetry: () => void;
+}) {
+  if (m.role === "user") {
+    const text = m.input?.text ?? "";
+    const fileName =
+      m.input?.attachment?.kind === "file" ? m.input.attachment.fileName : undefined;
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[88%] rounded-2xl bg-slate-900 px-4 py-3 text-slate-50 shadow-sm">
+          {fileName ? (
+            <div className="text-xs text-slate-200">{fileName}</div>
+          ) : null}
+          {text ? (
+            <pre className="mt-1 whitespace-pre-wrap break-words text-sm">{text}</pre>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  if (m.error) {
+    return (
+      <div className="flex justify-start">
+        <div className="max-w-[88%] rounded-2xl border border-red-200 bg-white px-4 py-3 text-sm text-red-800 dark:border-red-900/40 dark:bg-slate-950 dark:text-red-200">
+          <div className="space-y-2">
+            <div className="text-red-500 dark:text-red-400 font-medium">{m.error}</div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/50"
+              onClick={onRetry}
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              Retry Extraction
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const result = m.output?.result;
+  const modeForMessage = m.output?.mode ?? "simple";
+  if (!result) {
+    return (
+      <div className="flex justify-start">
+        <div className="max-w-[88%] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200">
+          (No output)
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex justify-start">
+      <div className="w-full max-w-[88%] rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        <div className="mb-2 flex items-center justify-between">
+          <div className="text-xs font-semibold text-slate-600 dark:text-slate-300">System</div>
+          {typeof result.confidence === "number" ? (
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              Confidence: {Math.round(result.confidence * 100)}%
+            </div>
+          ) : null}
+        </div>
+        <OutputTabs mode={modeForMessage} result={result} outputFormat={outputFormat} />
+      </div>
+    </div>
+  );
+});
+
 export function ChatArea({
   session,
   mode,
@@ -61,6 +138,13 @@ export function ChatArea({
   const [streamText, setStreamText] = React.useState("");
   const [reasoningStage, setReasoningStage] = React.useState(0);
   const bottomRef = React.useRef<HTMLDivElement | null>(null);
+
+  const handleRetry = React.useCallback(() => {
+    const lastUserMsg = [...session.messages].reverse().find(msg => msg.role === "user");
+    if (lastUserMsg?.input) {
+      onStartExtraction(lastUserMsg.input);
+    }
+  }, [session.messages, onStartExtraction]);
 
   const stages = [
     "Initial Extraction...",
@@ -94,81 +178,11 @@ export function ChatArea({
             </div>
           ) : null}
 
-          {session.messages.map((m) => {
-            if (m.role === "user") {
-              const text = m.input?.text ?? "";
-              const fileName =
-                m.input?.attachment?.kind === "file" ? m.input.attachment.fileName : undefined;
-              return (
-                <div key={m.id} className="flex justify-end">
-                  <div className="max-w-[88%] rounded-2xl bg-slate-900 px-4 py-3 text-slate-50 shadow-sm">
-                    {fileName ? (
-                      <div className="text-xs text-slate-200">{fileName}</div>
-                    ) : null}
-                    {text ? (
-                      <pre className="mt-1 whitespace-pre-wrap break-words text-sm">{text}</pre>
-                    ) : null}
-                  </div>
-                </div>
-              );
-            }
-
-            if (m.error) {
-              return (
-                <div key={m.id} className="flex justify-start">
-                  <div className="max-w-[88%] rounded-2xl border border-red-200 bg-white px-4 py-3 text-sm text-red-800 dark:border-red-900/40 dark:bg-slate-950 dark:text-red-200">
-                    <div className="space-y-2">
-                      <div className="text-red-500 dark:text-red-400 font-medium">
-                        {m.error}
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 gap-1.5 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/50"
-                        onClick={() => {
-                          const lastUserMsg = [...session.messages].reverse().find(msg => msg.role === "user");
-                          if (lastUserMsg?.input) {
-                            onStartExtraction(lastUserMsg.input);
-                          }
-                        }}
-                      >
-                        <RefreshCw className="h-3.5 w-3.5" />
-                        Retry Extraction
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              );
-            }
-
-            const result = m.output?.result;
-            const modeForMessage = m.output?.mode ?? "simple";
-            if (!result) {
-              return (
-                <div key={m.id} className="flex justify-start">
-                  <div className="max-w-[88%] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200">
-                    (No output)
-                  </div>
-                </div>
-              );
-            }
-
-            return (
-              <div key={m.id} className="flex justify-start">
-                <div className="w-full max-w-[88%] rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-                  <div className="mb-2 flex items-center justify-between">
-                    <div className="text-xs font-semibold text-slate-600 dark:text-slate-300">System</div>
-                    {typeof result.confidence === "number" ? (
-                      <div className="text-xs text-slate-500 dark:text-slate-400">
-                        Confidence: {Math.round(result.confidence * 100)}%
-                      </div>
-                    ) : null}
-                  </div>
-                  <OutputTabs mode={modeForMessage} result={result} outputFormat={outputFormat} />
-                </div>
-              </div>
-            );
-          })}
+          {session.messages.map((m) => (
+            <div key={m.id}>
+              <MemoizedMessageBubble m={m} outputFormat={outputFormat} onRetry={handleRetry} />
+            </div>
+          ))}
 
           {extracting ? (
             <div className="flex justify-start">
