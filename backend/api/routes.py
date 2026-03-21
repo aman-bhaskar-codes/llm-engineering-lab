@@ -11,7 +11,7 @@ from sqlalchemy import select
 from api.deps import get_current_user_id_from_request, get_db
 from core.cache import cache_get, cache_set, generate_cache_key
 from core.rate_limit import check_rate_limit
-from db.repositories.usage import increment_usage
+from db.repositories.usage import check_and_increment_quota
 from db.models.conversation import Conversation
 from db.models.semantic_memory import SemanticMemory
 from db.models.semantic_relationship import SemanticRelationship
@@ -79,6 +79,7 @@ async def extract_unified(
     request: Request,
     payload: ExtractRequest,
     user_id: uuid.UUID = Depends(get_current_user_id_from_request),
+    db: AsyncSession = Depends(get_db),
     _: None = Depends(check_rate_limit)
 ):
     """Unified asynchronous extraction endpoint."""
@@ -92,7 +93,16 @@ async def extract_unified(
     redis_pool = request.app.state.redis_pool
     if not redis_pool:
         raise HTTPException(status_code=500, detail="Worker pool not initialized")
-        
+
+    # SaaS Billing & Quota Enforcement
+    from db.models.subscription import Subscription
+    sub_q = select(Subscription).where(Subscription.user_id == user_id)
+    sub_res = await db.execute(sub_q)
+    subscription = sub_res.scalars().first()
+    plan = subscription.plan if subscription else "free"
+    
+    await check_and_increment_quota(db, user_id, plan)
+
     await redis_pool.enqueue_job("process_extraction_job", job_id, text, mode, str(user_id), model, schema)
     
     return {"job_id": job_id, "status": "queued"}

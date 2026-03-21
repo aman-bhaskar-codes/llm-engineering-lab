@@ -4,9 +4,10 @@ from typing import Any
 from loguru import logger
 from core.redis import redis_manager
 
-def generate_cache_key(input_text: str, mode: str) -> str:
-    """Generate a stable cache key based on input and mode."""
-    content = f"{input_text}:{mode}".encode("utf-8")
+def generate_cache_key(input_text: str, mode: str, schema: dict = None) -> str:
+    """Generate a stable cache key based on input, mode, and schema."""
+    schema_str = json.dumps(schema, sort_keys=True) if schema else ""
+    content = f"{input_text}:{mode}:{schema_str}".encode("utf-8")
     return f"extract:cache:{hashlib.sha256(content).hexdigest()}"
 
 async def cache_get(key: str) -> Any | None:

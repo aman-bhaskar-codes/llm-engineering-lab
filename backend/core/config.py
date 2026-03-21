@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_model_name: str = "phi3:mini"
 
+    # Queue Scaling
+    arq_max_jobs: int = 20
+
     class Config:
         env_file = ".env"
 

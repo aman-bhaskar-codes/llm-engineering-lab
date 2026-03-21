@@ -52,6 +52,50 @@ async def process_extraction_job(ctx: dict, job_id: str, text: str, mode: str, u
     accumulated_text = ""
     start_time = time.time()
 
+    # ── 0. CHECK SEMANTIC CACHE ──
+    from core.cache import generate_cache_key
+    cache_key = generate_cache_key(text, mode, schema)
+    cached_payload = await rc.get(cache_key)
+    
+    if cached_payload:
+        logger.info(f"Worker {job_id} HIT SEMANTIC CACHE")
+        cached_result = json.loads(cached_payload)
+        
+        # Stream the cached JSON directly to the frontend so it pops in instantly
+        cached_json_str = json.dumps(cached_result.get("data", {}))
+        await rc.rpush(chunks_key, cached_json_str)
+        await rc.publish(channel, "new_chunk")
+        
+        # Persist standard DB records (skip LLM)
+        uid = uuid.UUID(user_id)
+        async with AsyncSessionLocal() as db:
+            conversation = await create_conversation(db, user_id=uid, title=_get_title(text))
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            
+            result_dump = cached_result
+            result_dump["metadata"] = {
+                "model_used": "semantic-redis-cache",
+                "processing_time_ms": elapsed_ms,
+                "tokens_generated": 0,
+                "cached": True
+            }
+
+            extraction_obj = await add_extraction(
+                db, str(conversation.id), text[:5000], result_dump, result_dump.get("confidence", 0.99), mode, "text"
+            )
+            await db.commit()
+            
+        final_payload = {
+            "conversation_id": str(conversation.id),
+            "extraction_id": str(extraction_obj.id),
+            "result": result_dump
+        }
+        await rc.set(result_key, json.dumps(final_payload), ex=600)
+        await rc.set(done_key, "1", ex=600)
+        await rc.publish(channel, "done")
+        await rc.close()
+        return {"status": "success", "job_id": job_id, "cached": True}
+
     async def safe_stream_to_buffer(generator):
         """Stream tokens to Redis list + notify via pub/sub. Catches all errors."""
         nonlocal accumulated_text
@@ -129,11 +173,22 @@ async def process_extraction_job(ctx: dict, job_id: str, text: str, mode: str, u
         uid = uuid.UUID(user_id)
         async with AsyncSessionLocal() as db:
             conversation = await create_conversation(db, user_id=uid, title=_get_title(text))
+            # Inject SaaS COGS Metadata
+            elapsed_sec = time.time() - start_time
+            elapsed_ms = int(elapsed_sec * 1000)
+            tokens_generated = len(accumulated_text) // 4
+            result_dump = result.model_dump()
+            result_dump["metadata"] = {
+                "model_used": model,
+                "processing_time_ms": elapsed_ms,
+                "tokens_generated": tokens_generated
+            }
+
             extraction_obj = await add_extraction(
                 db,
                 conversation.id,
                 input_text=text[:5000],
-                extracted_json=result.data,
+                extracted_json=result_dump,
                 confidence=result.confidence,
                 mode=mode,
                 input_type="text"
@@ -151,6 +206,20 @@ async def process_extraction_job(ctx: dict, job_id: str, text: str, mode: str, u
                 except Exception as mem_err:
                     logger.warning(f"Worker semantic memory skip: {mem_err}")
 
+            # Update SaaS Token COGS Tracker
+            from db.models.usage import UsageTracking
+            from datetime import datetime
+            from sqlalchemy import select
+            today = datetime.utcnow().date()
+            usage_query = select(UsageTracking).where(
+                UsageTracking.user_id == uid, 
+                UsageTracking.usage_date == today
+            )
+            usage_res = await db.execute(usage_query)
+            usage = usage_res.scalars().first()
+            if usage:
+                usage.tokens_used += tokens_generated
+
             await db.commit()
 
         # ── 5. NEO4J (fire-and-forget) ──
@@ -160,13 +229,14 @@ async def process_extraction_job(ctx: dict, job_id: str, text: str, mode: str, u
             pass
 
         # ── 6. SIGNAL COMPLETION ──
-        elapsed = round(time.time() - start_time, 2)
-        logger.info(f"Worker {job_id} completed in {elapsed}s")
+        logger.info(f"Worker {job_id} completed in {elapsed_sec:.2f}s ({tokens_generated} tokens)")
         final_payload = {
             "conversation_id": str(conversation.id),
             "extraction_id": str(extraction_obj.id),
-            "result": result.model_dump()
+            "result": result_dump
         }
+        # Populate Semantic Cache for future identical requests (7 days)
+        await rc.set(cache_key, json.dumps(result.model_dump()), ex=604800)
         await rc.set(result_key, json.dumps(final_payload), ex=600)
         await rc.set(done_key, "1", ex=600)
         await rc.publish(channel, "done")
@@ -190,4 +260,4 @@ async def process_extraction_job(ctx: dict, job_id: str, text: str, mode: str, u
 class WorkerSettings:
     functions = [process_extraction_job]
     redis_settings = redis_settings
-    max_jobs = 20
+    max_jobs = settings.arq_max_jobs

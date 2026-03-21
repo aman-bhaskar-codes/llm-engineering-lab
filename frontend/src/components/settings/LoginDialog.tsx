@@ -57,9 +57,10 @@ export function LoginDialog() {
 
       const body = await res.json();
       const token: string = body.access_token;
+      const refreshToken: string = body.refresh_token;
       const userId: string = body.user_id;
       const name = emailValue.split("@")[0] || "User";
-      setAuthToken({ token, userId, name, email: emailValue });
+      setAuthToken({ token, refreshToken, userId, name, email: emailValue });
       closeLogin();
       toast.success("Signed in successfully");
     } catch (e: any) {

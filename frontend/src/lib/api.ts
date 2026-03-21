@@ -30,6 +30,52 @@ export async function healthCheck() {
   return res.json();
 }
 
+async function apiFetch(endpoint: string, options: RequestInit = {}): Promise<Response> {
+  const url = endpoint.startsWith("http") ? endpoint : `${getBaseUrl()}${endpoint}`;
+  
+  let res = await fetch(url, {
+    ...options,
+    headers: { ...getAuthHeader(), ...options.headers }
+  });
+
+  if (res.status === 401) {
+    const state = useAppStore.getState();
+    const refreshToken = state.auth.refreshToken;
+    if (refreshToken) {
+      try {
+        const refreshRes = await fetch(`${getBaseUrl()}/auth/refresh`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: refreshToken })
+        });
+        
+        if (refreshRes.ok) {
+          const body = await refreshRes.json();
+          state.setAuthToken({
+            token: body.access_token,
+            refreshToken: body.refresh_token,
+            userId: body.user_id,
+            name: state.auth.user?.name || "User",
+            email: state.auth.user?.email
+          });
+          
+          res = await fetch(url, {
+            ...options,
+            headers: { ...getAuthHeader(), ...options.headers }
+          });
+        } else {
+          state.logout();
+        }
+      } catch (e) {
+        state.logout();
+      }
+    } else {
+      state.logout();
+    }
+  }
+  return res;
+}
+
 export type ExtractProgress = (progress: number) => void;
 export type ExtractStreamToken = (token: string) => void;
 
@@ -178,11 +224,10 @@ export async function extractText(
   onProgress?.(10);
 
   const modelName = useAppStore.getState().settings.modelName || "phi3:mini";
-  const res = await fetch(`${getBaseUrl()}/extract`, {
+  const res = await apiFetch(`/extract`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...(getAuthHeader() as any)
     },
     body: JSON.stringify({
       text,
@@ -222,26 +267,19 @@ export type BackendConversationDetail = {
 };
 
 export async function listConversations(): Promise<BackendConversation[]> {
-  const res = await fetch(`${getBaseUrl()}/conversations`, {
-    headers: getAuthHeader() as any
-  });
+  const res = await apiFetch(`/conversations`);
   if (!res.ok) throw new Error("Failed to load conversations");
   return (await res.json()) as BackendConversation[];
 }
 
 export async function getConversation(conversationId: string): Promise<BackendConversationDetail> {
-  const res = await fetch(`${getBaseUrl()}/conversation/${conversationId}`, {
-    headers: getAuthHeader() as any
-  });
+  const res = await apiFetch(`/conversation/${conversationId}`);
   if (!res.ok) throw new Error("Failed to load conversation");
   return (await res.json()) as BackendConversationDetail;
 }
 
 export async function deleteConversation(conversationId: string): Promise<void> {
-  const res = await fetch(`${getBaseUrl()}/conversation/${conversationId}`, {
-    method: "DELETE",
-    headers: getAuthHeader() as any
-  });
+  const res = await apiFetch(`/conversation/${conversationId}`, { method: "DELETE" });
   if (!res.ok) throw new Error("Failed to delete conversation");
 }
 
@@ -251,17 +289,13 @@ export type BackendMemoryResponse = {
 };
 
 export async function getMemory(): Promise<BackendMemoryResponse> {
-  const res = await fetch(`${getBaseUrl()}/memory`, {
-    headers: getAuthHeader() as any
-  });
+  const res = await apiFetch(`/memory`);
   if (!res.ok) throw new Error("Failed to load memory");
   return (await res.json()) as BackendMemoryResponse;
 }
 
 export async function getRelationalContext(): Promise<{ context: any }> {
-  const res = await fetch(`${getBaseUrl()}/user/relational-context`, {
-    headers: getAuthHeader() as any
-  });
+  const res = await apiFetch(`/user/relational-context`);
   if (!res.ok) throw new Error("Failed to load relational context");
   return (await res.json()) as { context: any };
 }

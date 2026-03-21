@@ -18,6 +18,7 @@ export type AuthState = {
     email?: string;
   };
   token?: string;
+  refreshToken?: string;
   userId?: string;
 };
 
@@ -81,6 +82,7 @@ export type AppState = {
 
   setAuthToken: (payload: {
     token: string;
+    refreshToken: string;
     userId: string;
     name: string;
     email?: string;
@@ -161,9 +163,9 @@ export const useAppStore = create<AppState>()(
           ui: { ...get().ui, loginOpen: true }
         }),
 
-      setAuthToken: ({ token, userId, name, email }) =>
+      setAuthToken: ({ token, refreshToken, userId, name, email }) =>
         set({
-          auth: { token, userId, user: { name, email } },
+          auth: { token, refreshToken, userId, user: { name, email } },
           ui: { ...get().ui, loginOpen: false }
         }),
 

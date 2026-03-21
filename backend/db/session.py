@@ -3,12 +3,12 @@ from sqlalchemy.orm import sessionmaker
 
 from core.config import settings
 
+from sqlalchemy.pool import NullPool
+
 engine: AsyncEngine = create_async_engine(
     settings.database_url,
     echo=False,
-    pool_pre_ping=True,
-    pool_size=10,
-    max_overflow=20,
+    poolclass=NullPool,
 )
 
 AsyncSessionLocal = sessionmaker(

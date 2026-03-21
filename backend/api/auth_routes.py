@@ -9,6 +9,7 @@ from api.deps import get_db, get_current_user_id
 from auth.jwt import create_access_token, create_refresh_token, decode_token
 from auth.password import hash_password, verify_password
 from db.models.user import User
+from db.models.subscription import Subscription
 
 router = APIRouter(tags=["auth"])
 
@@ -47,7 +48,13 @@ async def signup(payload: UserSignup, db: AsyncSession = Depends(get_db)):
         email=payload.email,
         password_hash=hash_password(payload.password)
     )
+    subscription = Subscription(
+        user_id=user.id,
+        plan="free",
+        status="active"
+    )
     db.add(user)
+    db.add(subscription)
     await db.commit()
     await db.refresh(user)
 
