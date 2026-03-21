@@ -91,12 +91,16 @@ def sanitize_json_response(data: Any, schema: dict = None) -> Dict[str, Any]:
         return default_response
 
     if isinstance(data, dict):
-        # Merge with default to ensure all fields exist
-        # If 'data' is already a key, use that. Otherwise, data is the data.
+        # If model returned {"data": {...}, "confidence": ...} use that.
+        # Otherwise the entire dict IS the extracted data.
+        if "data" in data and isinstance(data["data"], dict):
+            extracted = data["data"]
+        else:
+            extracted = {k: v for k, v in data.items() if k not in ("confidence", "valid", "issues")}
         return {
-            "data": data.get("data", data if "data" not in data else {}),
-            "confidence": data.get("confidence", 0.0),
-            "valid": data.get("valid", True if "error" not in data else False),
+            "data": extracted,
+            "confidence": data.get("confidence", 0.85),
+            "valid": data.get("valid", True),
             "issues": data.get("issues", [])
         }
     

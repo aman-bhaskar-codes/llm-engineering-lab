@@ -1,86 +1,149 @@
 # Structured Extraction Intelligence Engine
 
-![chat_history_fix_verified_1774027236284](https://github.com/user-attachments/assets/replace-with-actual-screenshot-url) <!-- Replace with your own screenshot URL for GitHub -->
+A production-grade, multi-model AI system that converts unstructured text and documents into rigorously structured JSON data — with **real-time token streaming**, **automatic model fallback**, and a **resilient fail-open architecture**.
 
-A production-grade, multi-model AI system designed to convert unstructured text and documents into rigorously structured JSON data. 
+Built with **FastAPI**, **React (Next.js)**, **Zustand**, **PostgreSQL**, **Redis**, and optionally **Neo4j**.
 
-Built with **FastAPI**, **React (Next.js)**, **Zustand**, and **PostgreSQL**, this engine acts as a resilient, fail-open pipeline that prioritizes local LLM inference (Ollama) for low latency and privacy, with seamless fallback to cloud models (Gemini).
+## ⭐ Key Features
 
-## 🚀 Key Features
+| Feature | Description |
+|---|---|
+| **Real-Time Streaming** | Token-by-token SSE streaming via Redis pub/sub buffer — zero data loss even on late connections |
+| **Multi-Model Inference** | Local-first (Ollama: `qwen2.5:3b`, `phi`) with automatic cloud fallback (Gemini) |
+| **Three Extraction Modes** | `Simple` (fast), `Advanced` (multi-step for noisy data), `Reasoning` (chain-of-thought with think logs) |
+| **Async Job Processing** | Background workers via `arq` + Redis for non-blocking, scalable extraction |
+| **Semantic Memory** | PostgreSQL persistence + optional Neo4j graph memory for entity relationships |
+| **Fail-Open Design** | Neo4j down? Redis down? The system keeps working — every external dependency is optional |
+| **JWT Authentication** | Secure user sessions with access/refresh token rotation |
+| **Rate Limiting** | Redis-backed rate limiting to protect extraction endpoints |
 
-- **Multi-Model Inference:** 
-  - **Local First:** Defaults to `qwen2.5:3b` and `phi` via Ollama for sub-10 second latency and absolute data privacy.
-  - **Cloud Fallback:** Instantly switch to `gemini-2.5-flash` for complex reasoning tasks.
-- **Three Core Modes:**
-  - `Simple`: Fast, direct extraction for well-formatted text.
-  - `Advanced`: Multi-step extraction designed for noisy data or OCR output.
-  - `Reasoning`: Chain-of-thought processing that guarantees the highest quality extraction and logic verification.
-- **Resilient Memory Systems (Fail-Open):** 
-  - Uses robust **Redis** caching to eliminate duplicate API calls.
-  - **PostgreSQL** for persistent conversation history and extraction metadata.
-  - Optional **Neo4j** integration for semantic relationship graphs mapping entities across conversations.
-- **Unified Pipeline:** All interactions (regardless of mode) flow through a rock-solid, typed JSON pipeline that guarantees schema adherence.
+## 🏗️ Architecture
 
-## 🛠️ Architecture
-
-```mermaid
-graph TD
-    UI[Frontend (React/Zustand)] --> API[FastAPI Gateway]
-    API --> Cache[Redis Cache]
-    API --> Router[Model Router]
-    Router --> Ollama[Local: Qwen/Phi]
-    Router --> Gemini[Cloud: Gemini]
-    Ollama & Gemini --> Parser[JSON Sanitization Pipeline]
-    Parser --> DB[PostgreSQL]
-    Parser --> Neo4j[Graph Memory - Optional]
+```
+┌──────────────────────────────────────────────────────────────┐
+│  Frontend (Next.js / React / Zustand)                        │
+│  ┌──────────┐ ┌──────────┐ ┌────────────┐ ┌──────────────┐  │
+│  │ ChatArea │ │ Composer │ │ OutputTabs │ │  Settings    │  │
+│  └────┬─────┘ └────┬─────┘ └──────┬─────┘ └──────────────┘  │
+│       │ SSE Stream  │ POST         │                          │
+└───────┼─────────────┼──────────────┼──────────────────────────┘
+        │             │              │
+┌───────┼─────────────┼──────────────┼──────────────────────────┐
+│  FastAPI Gateway     │              │                          │
+│  ┌───────────────────┴──────────────┘                    │    │
+│  │  POST /extract → enqueue_job() → returns job_id       │    │
+│  │  GET  /extract/{id}/stream → SSE (polls Redis buffer) │    │
+│  └───────────────────────────────────────────────────────┘    │
+│                          │                                    │
+│  ┌───────────────────────┴────────────────────────────────┐  │
+│  │  arq Worker                                             │  │
+│  │  ┌──────────┐  ┌───────────┐  ┌─────────────────────┐  │  │
+│  │  │  Model   │→ │  Engine   │→ │  Redis Buffer       │  │  │
+│  │  │  Router  │  │ (S/A/R)   │  │  chunks:{id}        │  │  │
+│  │  └──────────┘  └───────────┘  │  done:{id}          │  │  │
+│  │  Ollama ←→ Gemini (fallback)  │  result:{id}        │  │  │
+│  │                                └─────────────────────┘  │  │
+│  └─────────────────────────────────────────────────────────┘  │
+│                          │                                    │
+│  ┌─────────┐  ┌──────────┴──┐  ┌──────────┐                 │
+│  │ Redis   │  │ PostgreSQL  │  │  Neo4j   │  (optional)      │
+│  │ Cache   │  │ Persistence │  │  Graph   │                  │
+│  └─────────┘  └─────────────┘  └──────────┘                 │
+└───────────────────────────────────────────────────────────────┘
 ```
 
-## 💻 Local Quickstart
+## 💻 Quick Start
 
-### 1. Prerequisites
-- Python 3.11+
+### Prerequisites
+- Python 3.11+ with `uv` or `pip`
 - Node.js 18+
-- PostgreSQL
-- Redis
-- [Ollama](https://ollama.com/) (optional but recommended for local inference)
+- PostgreSQL (running)
+- Redis (running)
+- [Ollama](https://ollama.com/) (recommended for local inference)
 
-### 2. Backend Setup
+### 1. Clone & Setup Backend
 ```bash
 cd backend
-python -m venv .venv
-source .venv/bin/activate
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# Set up your environment variables
+# Configure environment
 cp .env.example .env
-# Edit .env to add your database URLs and API keys
+# Edit .env with your credentials
 
-# Apply Alembic migrations
+# Run database migrations
 alembic upgrade head
 
-# Run the server
-uvicorn main:app --reload --port 8000
+# Start the API server
+uvicorn main:app --port 8000
+
+# In a separate terminal — start the background worker
+PYTHONPATH=. arq worker.WorkerSettings
 ```
 
-### 3. Frontend Setup
+### 2. Setup Frontend
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
-The app will be running at `http://localhost:3000`.
+Open `http://localhost:3000` in your browser.
 
-### 4. Pull Local Models (Optional)
-If you want to run the engine locally without utilizing cloud APIs:
+### 3. Pull Local Models (Recommended)
 ```bash
+ollama serve       # Start Ollama
 ollama pull qwen2.5:3b
 ollama pull phi
 ```
 
+## 🔧 Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `GEMINI_API_KEY` | — | Gemini API key (used as cloud fallback) |
+| `DATABASE_URL` | `postgresql+asyncpg://...` | PostgreSQL connection string |
+| `REDIS_URL` | `redis://localhost:6379` | Redis URL for cache, streaming, and rate limiting |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama API endpoint |
+| `OLLAMA_MODEL_NAME` | `qwen2.5:3b` | Default local model |
+| `NEO4J_URI` | `bolt://localhost:7687` | Neo4j bolt URI (optional) |
+| `JWT_SECRET` | `dev-secret-change-me` | **Change in production!** |
+
+## 📁 Project Structure
+
+```
+backend/
+├── api/routes.py          # FastAPI endpoints + SSE streaming
+├── engine/
+│   ├── simple_engine.py   # Fast single-pass extraction
+│   ├── advanced_engine.py # Multi-step chunked extraction
+│   └── reasoning_engine.py# Chain-of-thought extraction
+├── llm/
+│   ├── ollama_client.py   # Local inference via Ollama
+│   ├── gemini_client.py   # Cloud inference via Gemini
+│   └── model_router.py    # Automatic model selection + fallback
+├── worker.py              # arq background job processor
+├── core/                  # Config, models, prompts
+├── db/                    # SQLAlchemy models + repositories
+├── memory/                # Semantic extraction + Neo4j graph
+└── utils/                 # JSON parser, chunker, embeddings
+
+frontend/
+├── src/components/
+│   ├── app/AppShell.tsx   # Main application shell
+│   ├── chat/              # ChatArea, ChatComposer
+│   ├── output/            # OutputTabs (JSON viewer)
+│   ├── sidebar/           # Session history + memory panel
+│   └── settings/          # Model config, login
+├── src/lib/api.ts         # API client with SSE support
+├── src/state/             # Zustand store (persistent)
+└── src/types/             # TypeScript type definitions
+```
+
 ## 🔒 Security
-- JWT-based authentication system.
-- Full CORS configuration.
-- Rate limiting implemented via Redis sorted sets to protect the extraction endpoints.
+- JWT-based authentication with access/refresh token rotation
+- Full CORS configuration
+- Redis-backed rate limiting on extraction endpoints
+- Input sanitization on all user-provided text
 
 ## 📄 License
 MIT
