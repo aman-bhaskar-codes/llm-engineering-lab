@@ -172,15 +172,17 @@ export function AppShell() {
   }, [token, hydrateFromBackendConversations, clearAllMemory, upsertSemanticInsights]);
 
   async function handleDeleteChat(id: string) {
-    if (!confirm("Are you sure you want to delete this chat?")) return;
     try {
       const sess = sessions.find((s) => s.id === id);
       if (sess?.backendConversationId) {
         await deleteConversation(sess.backendConversationId);
       }
       deleteSession(id);
+      toast.success("Chat deleted");
     } catch {
-      toast.error("Failed to delete chat.");
+      // Still delete locally even if backend fails
+      deleteSession(id);
+      toast.error("Deleted locally (backend may still have it)");
     }
   }
 

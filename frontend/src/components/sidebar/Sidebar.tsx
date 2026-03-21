@@ -107,8 +107,9 @@ export function Sidebar({
                       e.stopPropagation();
                       onDeleteSession(s.id);
                     }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 hover:text-red-500 transition-opacity"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-400 hover:bg-red-100 hover:text-red-600 dark:text-slate-500 dark:hover:bg-red-900/30 dark:hover:text-red-400 transition-colors"
                     title="Delete Chat"
+                    aria-label="Delete chat"
                   >
                     🗑
                   </button>

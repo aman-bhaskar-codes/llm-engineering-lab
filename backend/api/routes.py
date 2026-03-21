@@ -99,7 +99,7 @@ async def extract_unified(
 
 @router.get("/extract/{job_id}/stream")
 async def extract_stream(job_id: str):
-    """SSE endpoint — polls Redis list buffer for chunks, yields to client."""
+    """SSE endpoint — all events sent as default 'message' type with prefix protocol."""
     from core.config import settings
     
     async def event_generator():
@@ -112,39 +112,38 @@ async def extract_stream(job_id: str):
         result_key = f"result:{job_id}"
 
         cursor = 0
-        max_wait = 300  # 5 min overall timeout
+        max_wait = 300
         waited = 0
         try:
             while waited < max_wait:
-                # 1. Drain any new chunks from the buffer
+                # 1. Drain buffer
                 chunks = await rc.lrange(chunks_key, cursor, -1)
                 if chunks:
                     for chunk in chunks:
-                        yield {"event": "message", "data": chunk}
+                        yield {"data": chunk}
                         cursor += 1
-                    waited = 0  # Reset timeout when we get data
+                    waited = 0
 
-                # 2. Check if worker is done
+                # 2. Check done
                 done_val = await rc.get(done_key)
                 if done_val is not None:
-                    # Drain any remaining chunks one more time
                     final_chunks = await rc.lrange(chunks_key, cursor, -1)
                     for chunk in final_chunks:
-                        yield {"event": "message", "data": chunk}
+                        yield {"data": chunk}
                         cursor += 1
 
                     final_res = await rc.get(result_key)
                     if done_val == "error":
-                        yield {"event": "error", "data": final_res or '{"error": "Unknown worker error"}'}
+                        yield {"data": "[ERROR]" + (final_res or '{"error":"Unknown"}') }
                     elif final_res:
-                        yield {"event": "done", "data": final_res}
+                        yield {"data": "[DONE]" + final_res}
                     else:
-                        yield {"event": "error", "data": '{"error": "Worker finished but no result found"}'}
+                        yield {"data": '[ERROR]{"error":"No result"}'}
                     break
 
-                # 3. Wait for notification or poll every 0.5s
+                # 3. Wait
                 try:
-                    msg = await asyncio.wait_for(
+                    await asyncio.wait_for(
                         pubsub.get_message(ignore_subscribe_messages=True),
                         timeout=0.5
                     )
@@ -152,8 +151,7 @@ async def extract_stream(job_id: str):
                     pass
                 waited += 0.5
             else:
-                # Overall timeout reached
-                yield {"event": "error", "data": '{"error": "Stream timed out after 5 minutes"}'}
+                yield {"data": '[ERROR]{"error":"Timed out"}'}
         finally:
             await pubsub.unsubscribe(f"stream:{job_id}")
             await rc.close()
