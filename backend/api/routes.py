@@ -99,42 +99,65 @@ async def extract_unified(
 
 @router.get("/extract/{job_id}/stream")
 async def extract_stream(job_id: str):
-    """SSE endpoint for streaming extraction progress with buffering."""
+    """SSE endpoint — polls Redis list buffer for chunks, yields to client."""
+    from core.config import settings
+    
     async def event_generator():
         rc = aioredis.from_url(settings.redis_url, decode_responses=True)
         pubsub = rc.pubsub()
         await pubsub.subscribe(f"stream:{job_id}")
-        
+
         chunks_key = f"chunks:{job_id}"
         done_key = f"done:{job_id}"
         result_key = f"result:{job_id}"
-        
+
         cursor = 0
+        max_wait = 300  # 5 min overall timeout
+        waited = 0
         try:
-            while True:
-                # 1. Drain existing buffer
+            while waited < max_wait:
+                # 1. Drain any new chunks from the buffer
                 chunks = await rc.lrange(chunks_key, cursor, -1)
-                for chunk in chunks:
-                    yield {"event": "message", "data": chunk}
-                    cursor += 1
-                
-                # 2. Check if already done
-                if await rc.exists(done_key):
+                if chunks:
+                    for chunk in chunks:
+                        yield {"event": "message", "data": chunk}
+                        cursor += 1
+                    waited = 0  # Reset timeout when we get data
+
+                # 2. Check if worker is done
+                done_val = await rc.get(done_key)
+                if done_val is not None:
+                    # Drain any remaining chunks one more time
+                    final_chunks = await rc.lrange(chunks_key, cursor, -1)
+                    for chunk in final_chunks:
+                        yield {"event": "message", "data": chunk}
+                        cursor += 1
+
                     final_res = await rc.get(result_key)
-                    if final_res:
+                    if done_val == "error":
+                        yield {"event": "error", "data": final_res or '{"error": "Unknown worker error"}'}
+                    elif final_res:
                         yield {"event": "done", "data": final_res}
+                    else:
+                        yield {"event": "error", "data": '{"error": "Worker finished but no result found"}'}
                     break
-                
-                # 3. Wait for new chunk or timeout (which triggers loop to check lrange again)
-                # This handles cases where a message is published while we are draining
+
+                # 3. Wait for notification or poll every 0.5s
                 try:
-                    await asyncio.wait_for(pubsub.get_message(ignore_subscribe_messages=True), timeout=1.0)
+                    msg = await asyncio.wait_for(
+                        pubsub.get_message(ignore_subscribe_messages=True),
+                        timeout=0.5
+                    )
                 except asyncio.TimeoutError:
                     pass
+                waited += 0.5
+            else:
+                # Overall timeout reached
+                yield {"event": "error", "data": '{"error": "Stream timed out after 5 minutes"}'}
         finally:
             await pubsub.unsubscribe(f"stream:{job_id}")
             await rc.close()
-            
+
     return EventSourceResponse(event_generator())
 
 
@@ -144,6 +167,7 @@ async def extract_stream(job_id: str):
 
 @router.post("/extract-file")
 async def extract_from_file(
+    request: Request,
     file: UploadFile = File(...),
     conversation_id: uuid.UUID | None = Form(default=None),
     mode: str = Form(default="advanced"),

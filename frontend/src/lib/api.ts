@@ -42,37 +42,66 @@ function listenToExtractionStream(
   return new Promise((resolve, reject) => {
     const sseUrl = `${getBaseUrl()}/extract/${jobId}/stream`;
     const eventSource = new EventSource(sseUrl);
-
+    let settled = false;
     let currentProgress = 30;
+
+    // Safety timeout — if nothing resolves within 5 mins, give up
+    const timeout = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        eventSource.close();
+        reject(new Error("Extraction timed out after 5 minutes. Please try again."));
+      }
+    }, 5 * 60 * 1000);
+
+    // Streaming tokens
     eventSource.onmessage = (event) => {
-       onStreamToken?.(event.data);
-       currentProgress = Math.min(99, currentProgress + 1);
-       onProgress?.(currentProgress);
+      if (settled) return;
+      onStreamToken?.(event.data);
+      currentProgress = Math.min(95, currentProgress + 1);
+      onProgress?.(currentProgress);
     };
 
+    // Success — final JSON payload
     eventSource.addEventListener("done", (event) => {
-       try {
-         const parsed = JSON.parse(event.data);
-         const response: ExtractionApiResponse = {
-           result: parsed.result,
-           conversation_id: parsed.conversation_id,
-           extraction_id: parsed.extraction_id,
-           cached: false,
-           metadata: { processing_time: "async queue", model_used: modelName, source: "stream" }
-         };
-         eventSource.close();
-         onProgress?.(100);
-         resolve(response);
-       } catch(e: any) {
-         eventSource.close();
-         reject(new Error("Failed to parse final JSON payload from stream: " + e.message));
-       }
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      eventSource.close();
+      try {
+        const parsed = JSON.parse((event as MessageEvent).data);
+        const response: ExtractionApiResponse = {
+          result: parsed.result,
+          conversation_id: parsed.conversation_id,
+          extraction_id: parsed.extraction_id,
+          cached: false,
+          metadata: { processing_time: "async queue", model_used: modelName, source: "stream" }
+        };
+        onProgress?.(100);
+        resolve(response);
+      } catch (e: any) {
+        reject(new Error("Failed to parse extraction result: " + e.message));
+      }
     });
 
+    // Explicit error from worker
     eventSource.addEventListener("error", (event) => {
-       eventSource.close();
-       const errData = (event as any).data ? String((event as any).data) : "Stream closed unexpectedly or LLM failed.";
-       reject(new Error(`Extraction stream error: ${errData}`));
+      if (settled) return;
+      // Check if this is a NAMED "error" event from our SSE (has data)
+      const msgEvent = event as MessageEvent;
+      if (msgEvent.data) {
+        settled = true;
+        clearTimeout(timeout);
+        eventSource.close();
+        try {
+          const parsed = JSON.parse(msgEvent.data);
+          reject(new Error(`Extraction failed: ${parsed.error || "Unknown error"}`));
+        } catch {
+          reject(new Error(`Extraction failed: ${msgEvent.data}`));
+        }
+      }
+      // If no data, this is just EventSource reconnection noise — ignore it
+      // The SSE connection will naturally close when the generator ends
     });
   });
 }
