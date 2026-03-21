@@ -1,128 +1,125 @@
-# 🧠 Structured Extraction Intelligence Engine
+# 🧠 Structured Extraction Intelligence Engine (v2.0)
 
-> **Unstructured Data → Intelligent Structured Knowledge. Instantly.**
+> **The Enterprise-Grade Data Algebra Orchestrator: Unstructured Assets ➔ Immutable Relational Intelligence.**
 
 [![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=flat&logo=fastapi)](https://fastapi.tiangolo.com/)
-[![React](https://img.shields.io/badge/React-20232A?style=flat&logo=react)](https://react.dev/)
+[![Next.js](https://img.shields.io/badge/Next.js-000000?style=flat&logo=nextdotjs)](https://nextjs.org/)
 [![Redis](https://img.shields.io/badge/Redis-DC382D?style=flat&logo=redis)](https://redis.io/)
-[![Ollama](https://img.shields.io/badge/Ollama-black?style=flat)](https://ollama.com/)
+[![Ollama](https://img.shields.io/badge/Ollama-000000?style=flat)](https://ollama.com/)
+[![Tesseract](https://img.shields.io/badge/OCR-Tesseract-blue?style=flat)](https://github.com/tesseract-ocr/tesseract)
 
-An enterprise-grade, high-concurrency **AI SaaS Platform** that dismantles unstructured PDFs, Images (OCR), and raw text streams into strictly validated, sub-millisecond JSON models—backed by distributed background worker queues and costing telemetry pipelines.
-
----
-
-## 🌍 What This Project Does
-
-The Intelligence Engine solves the core bottleneck of the AI Age: **Format Drift**. 
-
-It ingests human-readable content and translates it into machine-executable schema architectures utilizing hybrid Local/Cloud LLM orchestration:
-
-*   **Ingestion**: Supports Raw `Text`, binary `.pdf` streams (PyPDF), and dense vision matrices (`.png`, `.jpg`) routed through independent Tesseract Vision frames.
-*   **Routing**: Assigns workloads to optimal tier sizes (Phi3, Gemma, Mistral, Gemini) preventing over-expensing on simple formats.
-*   **Telemetry**: Appends exact COGS expense counting, token metrics, and validation scores inside absolute streams.
+An elite, high-scale **AI SaaS Production Stack** designed to ingest complex, unstructured content matrices—dense PDFs, visual screenshots (OCR), and raw text streams—and dismantle them into strictly-typed, sub-millisecond JSON trees. Engineered for boundless multi-tenant concurrency and edge performance.
 
 ---
 
-## 🧠 Core Idea
+## 🌍 The Core Pipeline Constraint
 
-### `"Unstructured ➔ Intelligent Relational Clusters"`
-Static scraping is broken. This platform treats extraction as a **Chain-of-Thought reasoning loop**, ensuring that returned values don't just "look like JSON"—they strictly satisfy **PyDantic type guarantees** with zero prompt-leaks or markdown wrappers.
+In the age of Large Language Models, deterministic applications break because LLMs return non-deterministic, conversational syntax. 
+
+The **Structured Extraction Intelligence Engine** resolves this state drift by binding loose attention vectors into structured **Pydantic Data Schemas** strictly enforcing data types, constraints, and valid relational anchors.
 
 ---
 
-## ⚙️ System Architecture
+## ⚙️ Advanced System Architecture
+
+### 🔄 Distributed Node Topology
 
 ```text
-  [ User Dashboard ] (Next.js)
-           ↓
-  [ API Gateway ] (FastAPI Multi-Tenant)
-           ↓
-  [ Smart Cache ] <─── Redis Edge (<10ms Bypass)
-           ↓
-  [ ARQ Background Worker Queue ]
-           ↓
-   ├── Ingestion Frame (Tesseract OCR / PDF-2-Text)
-   ├── Tiered Router (Local vs Cloud LLM orchestration)
-   └── Validating Engine (Chain of Thought & Micro-Reruns)
-           ↓
-  [ Structured SQLite / Postgres ] ───▶ [ LIVE SSE STREAM ] ──▶ [ Next.js UI ]
+[ USER UI ] (React 18 / Zustand Client States)
+     ┇
+     ▼ 
+[ API GATEWAY ] (FastAPI uvicorn workers)
+     ┇
+     ┣━━▶ 🔐 [ Auth Hardening ]: Silent JWT Key Rotation Interceptor
+     ┣━━▶ 📈 [ Billing Guard ]: Deterministic Quota Exhaustion (402 Limits)
+     ┗━━▶ ⚡ [ Edge Cache ]: SHA-256 State Hashing (Redis)
+                            ⬇️ (Cache Hit: Bypass Queue, Stream <10ms)
+[ ASYNC WORKER POOL ] (ARQ Master nodes)
+     ┇
+     ┣━━━▶ 📄 [ Ingestion ]: Tesseract Vision Maps / PyPDF Ingress
+     ┣━━━▶ 🤖 [ LLM Orchestration ]: local llama.cpp / Ollama cluster
+     ┗━━━▶ 🧪 [ Validation ]: Micro-Rerun Sanitizations & Schema Locks
+     ┇
+     ▼
+[ DATA BACKPLANE ]
+     ┣━━▶ 📦 [ Postgres ]: NullPool async thread delegation
+     ┗━━▶ 📈 [ COGS Tracking ]: LLM Token calculation & margins auditing
 ```
 
-### 🏢 Architectural Breakdown
+---
 
-1.  **Transport Ingress**: FastAPI enqueues jobs into highly parallelized **ARQ background queues**. Jobs return instantly with a `job_id`, preventing web timeouts on heavy PDFs.
-2.  **Semantic Edge Caching**: SHA-256 Hashing of instructions bypasses the LLM array entirely for identical document hashes, yielding cached payloads immediately to free up compute limits.
-3.  **Connection Delegation**: Configured with `NullPool` architecture, allowing boundless concurrency limits across high-availability multi-user platforms without triggering max workloads DB crashes.
+## 🔥 Operations Complexity Matrices
+
+To optimize compute limits and overhead expensing to protect system safety margins, workloads are dispatched across tiered capabilities:
+
+### 🟢 **Simple Mode** (Sub-Second Operations)
+*   **Default Engine**: `gemma:2b` Local Graph
+*   **Ideal Core**: Clean invoices, scan parsing, standard lists grids.
+*   **Logic Model**: High-speed, single-shot inference dispatch routing to local clusters.
+
+### 🟡 **Advanced Mode** (Semantic Context Compression)
+*   **Default Engine**: `phi3:mini` Default
+*   **Ideal Core**: Lengthy contracts, recursive resumes, large PDFs files.
+*   **Logic Model**: Overlapping sliding-window chunking matrix. Aggregates broken text into parallel vector buffers and reduces duplicates prior to final validation structures.
+
+### 🔴 **Reasoning Mode** (Chain-of-Thought Rerun)
+*   **Default Engine**: `mistral:latest` / Cloud Lookup
+*   **Ideal Core**: Ambiguous tables, dense spreadsheets, medical diagnostics documents.
+*   **Logic Model**: **Double-Pass Evaluation loop**. Directs the model to extract content, analyzes returned confidence anomalies, notes failures, and performs explicit prompt re-extractions of critical fields.
 
 ---
 
-## 🔥 Operations Modes
+## 🧠 Core LLM Engineering Frameworks
 
-The engine employs tiered complexities to protect infrastructure profit margins:
+Deterministic outcomes from probabilistic models demand advanced prompt framing and error correction subsystems:
 
-### 🟢 **Simple Mode** (Low Latency)
-*   **Default Model**: `gemma:2b` Local Cluster
-*   **Design**: Direct extraction loop designed for speed and budget. Optimal for raw invoices, clean list yields, and quick resume scans.
+### 1. **Zero-Overhead Sanitizers**
+Models frequently leak string-residuals (e.g. ````json ... ```` wrapper frames). The router intercepts chunk streams mid-flight, automatically stripping markdown anchors, fixing missing trailing brackets, and converting Single-quote indices to clean `JSON` standards without forcing a full model rerun.
 
-### 🟡 **Advanced Mode** (Semantic Chunking)
-*   **Default Model**: `phi3:mini` (Default)
-*   **Design**: Breaks massive 50,000-word payloads down into semantic overlapping context buffers, processes parallel maps, and reduces them without smashing local KV-cache limits.
-
-### 🔴 **Reasoning Mode** (Critical Accuracy)
-*   **Default Model**: `mistral:latest` / Cloud Lookup
-*   **Design**: Multiple dialogue passes. The engine generates structured content, evaluates its own answers against rigid type-safety bounds, notes confidence anomalies, and explicitly re-extracts critical columns before returning payload.
+### 2. **Continuous heartbeats (SSE Generator)**
+Waiting for heavy 30,000-token PDF inferences crashes browser proxies. The backend translates the static load into a **Server-Sent Events (SSE)** response stream, injecting standard `[HB]` heartbeat ticks every ~2s to hold browser `EventSource` and socket listeners perpetually active for massive generations.
 
 ---
 
-## 🧠 LLM Engineering Concepts
+## ⚡ High-Scale SaaS Optimization (v2.0 Upgrade)
 
-To achieve deterministic outputs from non-deterministic models, the platform leverages several custom patterns:
+Engineered natively to handle thousands of concurrent tenant streams without smashing local server limits:
 
-*   **Zero-Shot Typings**: Dynamic JSON payload formatting driven through strict wrapper payloads that force the model to render solely valid parsable trees (zero markdown).
-*   **Sanitize Subsystem**: Automatically patches common LLM hallucinations (missing trailing braces, single-quoted fields, duplicate arrays).
-*   **Health Heartbeats**: Streaming frames include silent `[HB]` frame packets that trick browser socket buffers into staying alive during long Cloud Generative-AI latency builds.
-
----
-
-## ⚡ Performance Design (SaaS Scaling)
-
-Designed natively to handle massive tenant scaling loads under memory safety guarantees:
-
-*   **Token Telemetry**: Inside full streaming setups, token counting equations record profit margin buffers securely inside SQL metadata frameworks.
-*   **Automatic Restarts**: Integrated fail-overs seamlessly pivot local socket disconnects to secondary worker fallback parameters.
-*   **Connection Pools**: Database NullPool configuration routes seamlessly across PgBouncer balancing gates.
+| Infrastructure Layer | Advanced Implementation details | Engineering Margin |
+| :--- | :--- | :--- |
+| **Connection Pooling** | `NullPool` architecture offloads internal locking entirely onto Postgres balancers (PgBouncer). | Zero connection exhaustions under sudden massive traffic surges. |
+| **SaaS Billing & Quotas** | Strict requests tracking threshold injected into API gates. | "Free" trial containers lock securely at 50 queries/day threshold with hard HTTP 402 lockouts. |
+| **Edge Cache (Redis)** | Stringified Dictionary `separators=(",", ":")` sort keys. | Guarantees absolute deterministic Cache Hashing over identical document nodes. |
+| **Security Credentials** | Axios/Fetch silent JWT Rotation Interceptor. | Intercepts `401 Unauthorized` inside React and silently renews access keys to keep active sessions fluid. |
 
 ---
 
-## 🧱 Tech Stack
+## 🧪 Что I Learned (Engineering Post-Mortem)
 
-| Component | Standard Implementation Setup |
-| :--- | :--- |
-| **Backend Framework** | FastAPI + Uvicorn Async Gateways Core |
-| **Queue Pipelines** | ARQ Background Workers (Redis-Backed) |
-| **State Buffering** | Redis Streams & Live Response Sockets |
-| **User State State** | Zustand Client Side Hydrations |
-| **Database** | SQL Alchemy mapping bound triggers |
-| **Vision Frames** | Tesseract Vision Direct Memory loads |
+*   **MissingGreenlet Concurrency conflicts**: Highly async FastAPI setups crash if sub-threads attempt recursive SQL deletions concurrently on implicit ORM attributes. Migrated safely to explicit `Relationship` joins to maintain boundless CPU frame rates.
+*   **Redis lists buffers**: Speed tests previously failed because iterative pub/subs didn't wait efficient delays. Setup fully blocking lists pops with explicit `timeout=0.5` pauses loading CPU bottlenecks completely.
 
 ---
 
-## 🚀 How to Run
+## 🚀 How to Run (Cluster Deployment)
 
-### **1. Backend Framework**
+#### **1. Database & Cache layer**
+Ensure PostgreSQL is active and standard Redis nodes are mapped safely on standard ports (`6379`).
+
+#### **2. Backend setup**
 ```bash
-# Clone the repository
 cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# Launch FastAPI & Work Node concurrently
+# Concurrently trigger standard operations:
 uvicorn main:app --port 8000 --reload
+# ARQ Background Worker Loop:
 arq worker.WorkerSettings
 ```
 
-### **2. Frontend Dashboard**
+#### **3. Frontend Dashboard**
 ```bash
 cd frontend
 npm install
@@ -131,20 +128,11 @@ npm run dev
 
 ---
 
-## 🧪 Что I Learned (Architectural Narrative)
+## 🔥 Advanced Future Evolutions
 
-Building enterprise-grade extraction infrastructure forces extreme constraints on **KV-Caching**:
-1.  Standard WebSockets time out if the browser loses focus; **Server-Sent Events (SSE)** with continuous Heartbeats solve mobile-view reliability limits flawlessly.
-2.  Typing errors inside Pydantic are easily catchable, but model hallucination bounds exceed typings; introducing self-correction loops on the prompt matrix dramatically cut error rates on complex resumes below 1%.
-
----
-
-## 🔥 Future Roadmap
-
-- [ ] **Grafana integration**: Custom dashboards visualizing worker backlog count vs token expense charts.
-- [ ] **Direct Native Reruns**: "Regenerate" toggle keys placed inside visual dashboard chat boxes.
-- [ ] **AWS S3 integrations**: Continuous buckets listener to trigger pipelines without manual uploads files.
+- [ ] **Adaptive Routing Engine**: Automated token allocation dynamically redirecting over 2,000 words into Cloud fallbacks before executing Local threads.
+- [ ] **Dashboard visual query visualizers**: Elastic-search nodes allowing full text retrieval on loaded parsed extraction grids in real-time.
 
 ---
 
-> 📌 **Final Statement**: This is not just script. This is an elastic system built to scale the translation Layer between raw Human intuition and structured Machine executables.
+> 📌 **Final Statement**: Static web scraping frameworks are obsolete. This engine treats unstructured formats as dynamic relational algebras, providing consistent Data reliability across Local LLM matrix operations.
